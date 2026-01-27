@@ -2,6 +2,7 @@ mod app;
 mod audio;
 mod cli;
 mod error;
+mod playback;
 mod radio;
 
 use std::sync::Arc;
@@ -14,6 +15,7 @@ use crate::app::{AppState, BpmMode};
 use crate::audio::AudioPipeline;
 use crate::cli::Args;
 use crate::error::Result;
+use crate::playback::PlaybackEngine;
 use crate::radio::RadioService;
 
 #[tokio::main]
@@ -126,15 +128,23 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
         "Loop ready"
     );
 
-    // TODO: Phase 4 - Initialize playback engine
+    // Initialize playback engine
+    let mut playback = PlaybackEngine::new()?;
+
+    // Start playing the loop
+    playback.play(loop_buffer);
+    info!("Playback started - press Ctrl-C to stop");
+
     // TODO: Phase 5 - Start producer task
     // TODO: Phase 6 - Start TUI
 
-    // For now, just wait for shutdown signal
-    info!("Waiting for shutdown signal (Ctrl-C)...");
+    // Wait for shutdown signal
     while !state.is_quitting() {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
+
+    // Clean shutdown
+    playback.stop();
 
     Ok(())
 }
