@@ -69,12 +69,12 @@ impl RadioGardenClient {
         let url = format!("{}/ara/content/page/{}", BASE_URL, place_id);
         let response: ApiResponse<PlaceData> = self.get_json(&url).await?;
 
-        // Flatten all channel sections
+        // Flatten all channel sections and unwrap the page field
         let channels: Vec<ChannelRef> = response
             .data
             .content
             .into_iter()
-            .flat_map(|section| section.items)
+            .flat_map(|section| section.items.into_iter().map(|item| item.page))
             .collect();
 
         debug!(count = channels.len(), place_id, "Fetched place channels");

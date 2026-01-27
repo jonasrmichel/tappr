@@ -57,20 +57,24 @@ pub struct ChannelSection {
     pub items: Vec<ChannelRef>,
 }
 
+/// Item wrapper in place listing (contains a page object)
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChannelItem {
+    pub page: ChannelRef,
+}
+
 /// Channel reference in place listing
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChannelRef {
-    #[allow(dead_code)]
-    pub href: String,
+    pub url: String,
     pub title: String,
 }
 
 impl ChannelRef {
-    /// Extract channel ID from href (e.g., "/listen/xxx/channel.mp3" -> "xxx")
+    /// Extract channel ID from url (e.g., "/listen/3fm/UsxY2mdY" -> "UsxY2mdY")
     pub fn id(&self) -> Option<&str> {
-        self.href
-            .strip_prefix("/listen/")
-            .and_then(|s| s.strip_suffix("/channel.mp3"))
+        // URL format: /listen/{name}/{id}
+        self.url.strip_prefix("/listen/").and_then(|s| s.rsplit('/').next())
     }
 }
 
@@ -182,5 +186,5 @@ pub struct PlaceData {
 pub struct PlaceContent {
     #[allow(dead_code)]
     pub items_type: Option<String>,
-    pub items: Vec<ChannelRef>,
+    pub items: Vec<ChannelItem>,
 }
