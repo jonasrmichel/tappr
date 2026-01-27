@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod error;
+mod radio;
 
 use std::sync::Arc;
 
@@ -11,6 +12,7 @@ use tracing_subscriber::EnvFilter;
 use crate::app::AppState;
 use crate::cli::Args;
 use crate::error::Result;
+use crate::radio::RadioService;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -71,7 +73,24 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
         "Starting session"
     );
 
-    // TODO: Phase 2 - Initialize Radio Garden client
+    // Initialize Radio Garden service
+    let radio = RadioService::new(args.rate_limit_ms, args.cache_dir.clone());
+
+    // Get initial station
+    let station = radio
+        .next_station(args.search.as_deref(), args.region.as_deref())
+        .await?;
+
+    info!(
+        name = %station.name,
+        country = %station.country,
+        place = %station.place_name,
+        lat = station.latitude,
+        lon = station.longitude,
+        stream_url = ?station.stream_url,
+        "Found station"
+    );
+
     // TODO: Phase 3 - Initialize audio pipeline
     // TODO: Phase 4 - Initialize playback engine
     // TODO: Phase 5 - Start producer task
