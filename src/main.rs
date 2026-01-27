@@ -1,4 +1,5 @@
 mod app;
+mod audio;
 mod cli;
 mod error;
 mod radio;
@@ -9,7 +10,8 @@ use clap::Parser;
 use tracing::{error, info, Level};
 use tracing_subscriber::EnvFilter;
 
-use crate::app::AppState;
+use crate::app::{AppState, BpmMode};
+use crate::audio::AudioPipeline;
 use crate::cli::Args;
 use crate::error::Result;
 use crate::radio::RadioService;
@@ -91,7 +93,39 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
         "Found station"
     );
 
-    // TODO: Phase 3 - Initialize audio pipeline
+    // Initialize audio pipeline
+    let audio_pipeline = AudioPipeline::new(args.bpm_min, args.bpm_max);
+
+    // Determine BPM mode
+    let bpm_mode = args
+        .bpm
+        .map(BpmMode::Fixed)
+        .unwrap_or(BpmMode::Auto {
+            min: args.bpm_min,
+            max: args.bpm_max,
+        });
+
+    // Process the station (capture, decode, quantize)
+    info!("Processing audio...");
+    let loop_buffer = audio_pipeline
+        .process_station(
+            &station,
+            args.listen_seconds,
+            bpm_mode,
+            args.bars,
+            args.beats_per_bar(),
+        )
+        .await?;
+
+    info!(
+        bpm = loop_buffer.loop_info.bpm,
+        confidence = format!("{:.0}%", loop_buffer.loop_info.bpm_confidence * 100.0),
+        bars = loop_buffer.loop_info.bars,
+        duration_secs = loop_buffer.duration_secs(),
+        samples = loop_buffer.samples.len(),
+        "Loop ready"
+    );
+
     // TODO: Phase 4 - Initialize playback engine
     // TODO: Phase 5 - Start producer task
     // TODO: Phase 6 - Start TUI
