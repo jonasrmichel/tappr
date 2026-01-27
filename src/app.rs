@@ -7,6 +7,7 @@ use crate::cli::Args;
 /// Station metadata
 #[derive(Debug, Clone)]
 pub struct StationInfo {
+    #[allow(dead_code)]
     pub id: String,
     pub name: String,
     pub country: String,
@@ -40,6 +41,7 @@ pub struct LoopInfo {
     /// Number of bars in the loop
     pub bars: u8,
     /// Beats per bar
+    #[allow(dead_code)]
     pub beats_per_bar: u8,
     /// Duration in samples (frames)
     pub duration_samples: usize,
@@ -49,6 +51,7 @@ pub struct LoopInfo {
 
 impl LoopInfo {
     /// Loop duration in seconds
+    #[allow(dead_code)]
     pub fn duration_secs(&self) -> f32 {
         self.duration_samples as f32 / self.sample_rate as f32
     }
@@ -64,6 +67,7 @@ pub enum BpmMode {
 }
 
 impl BpmMode {
+    #[allow(dead_code)]
     pub fn is_auto(&self) -> bool {
         matches!(self, BpmMode::Auto { .. })
     }
@@ -76,9 +80,13 @@ pub struct Settings {
     pub bars: u8,
     pub beats_per_bar: u8,
     pub listen_seconds: u32,
+    #[allow(dead_code)]
     pub clip_seconds: u32,
+    #[allow(dead_code)]
     pub station_change_seconds: u32,
+    #[allow(dead_code)]
     pub min_rms: f32,
+    #[allow(dead_code)]
     pub max_silence: f32,
 }
 
@@ -133,6 +141,7 @@ impl Settings {
 
 /// Current playback state
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum PlaybackState {
     /// Initial state, no audio playing
     Idle,
@@ -153,6 +162,7 @@ impl Default for PlaybackState {
     }
 }
 
+#[allow(dead_code)]
 impl PlaybackState {
     /// Get current station if any
     pub fn station(&self) -> Option<&StationInfo> {
@@ -184,10 +194,13 @@ pub struct AppState {
     /// User settings (modifiable via TUI)
     pub settings: RwLock<Settings>,
     /// Current playback state (watch channel for TUI updates)
+    #[allow(dead_code)]
     playback_tx: watch::Sender<PlaybackState>,
     /// Receiver for playback state
+    #[allow(dead_code)]
     playback_rx: watch::Receiver<PlaybackState>,
     /// Station history for display
+    #[allow(dead_code)]
     pub station_history: RwLock<Vec<StationInfo>>,
     /// Shutdown flag
     pub should_quit: Arc<AtomicBool>,
@@ -208,16 +221,19 @@ impl AppState {
     }
 
     /// Update playback state
+    #[allow(dead_code)]
     pub fn set_playback_state(&self, state: PlaybackState) {
         let _ = self.playback_tx.send(state);
     }
 
     /// Subscribe to playback state changes
+    #[allow(dead_code)]
     pub fn subscribe_playback(&self) -> watch::Receiver<PlaybackState> {
         self.playback_rx.clone()
     }
 
     /// Get current playback state
+    #[allow(dead_code)]
     pub fn playback_state(&self) -> PlaybackState {
         self.playback_rx.borrow().clone()
     }
@@ -233,6 +249,7 @@ impl AppState {
     }
 
     /// Add station to history
+    #[allow(dead_code)]
     pub async fn add_to_history(&self, station: StationInfo) {
         let mut history = self.station_history.write().await;
         // Keep last 10 stations

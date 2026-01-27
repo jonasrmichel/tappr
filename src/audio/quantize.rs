@@ -13,7 +13,9 @@ struct BpmEstimate {
 
 /// Audio quantizer for beat alignment
 pub struct Quantizer {
+    #[allow(dead_code)]
     min_bpm: f32,
+    #[allow(dead_code)]
     max_bpm: f32,
 }
 

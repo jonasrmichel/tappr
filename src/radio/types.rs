@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiResponse<T> {
+    #[allow(dead_code)]
     pub api_version: u32,
     #[allow(dead_code)]
     pub version: Option<String>,
@@ -42,8 +43,8 @@ impl Place {
 
 /// Channels list response data
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct ChannelsData {
-    #[allow(dead_code)]
     pub title: Option<String>,
     pub content: Vec<ChannelSection>,
 }
@@ -51,8 +52,8 @@ pub struct ChannelsData {
 /// Section containing channel references
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct ChannelSection {
-    #[allow(dead_code)]
     pub items_type: Option<String>,
     pub items: Vec<ChannelRef>,
 }
@@ -67,6 +68,7 @@ pub struct ChannelItem {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChannelRef {
     pub url: String,
+    #[allow(dead_code)]
     pub title: String,
 }
 
@@ -146,8 +148,11 @@ pub struct SearchSource {
 #[derive(Debug, Deserialize)]
 pub struct SearchPage {
     pub url: String,
+    #[allow(dead_code)]
     pub title: String,
+    #[allow(dead_code)]
     pub place: Option<PlaceRef>,
+    #[allow(dead_code)]
     pub country: Option<CountryRef>,
     #[allow(dead_code)]
     pub subtitle: Option<String>,
@@ -165,6 +170,7 @@ impl SearchSource {
     }
 
     /// Get title from nested page
+    #[allow(dead_code)]
     pub fn title(&self) -> Option<&str> {
         self.page.as_ref().map(|p| p.title.as_str())
     }
@@ -175,6 +181,7 @@ impl SearchSource {
     }
 
     /// Check if this is a place result
+    #[allow(dead_code)]
     pub fn is_place(&self) -> bool {
         self.result_type == "place"
     }

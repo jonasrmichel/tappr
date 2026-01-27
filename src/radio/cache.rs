@@ -7,9 +7,11 @@ use tracing::{debug, warn};
 use super::types::Place;
 
 /// Time-to-live for cached places (1 hour)
+#[allow(dead_code)]
 const PLACES_TTL: Duration = Duration::from_secs(3600);
 
 /// Cached places with timestamp
+#[allow(dead_code)]
 struct CachedPlaces {
     places: Vec<Place>,
     timestamp: SystemTime,
@@ -43,11 +45,13 @@ impl RadioCache {
     }
 
     /// Get cache directory path
+    #[allow(dead_code)]
     pub fn cache_dir(&self) -> &PathBuf {
         &self.cache_dir
     }
 
     /// Get cached places if still valid
+    #[allow(dead_code)]
     pub fn get_places(&self) -> Option<Vec<Place>> {
         let cache = self.places.read();
         if let Some(cached) = cache.as_ref() {
@@ -60,6 +64,7 @@ impl RadioCache {
     }
 
     /// Store places in cache
+    #[allow(dead_code)]
     pub fn set_places(&self, places: Vec<Place>) {
         debug!(count = places.len(), "Caching places");
         let mut cache = self.places.write();

@@ -2,6 +2,7 @@ use thiserror::Error;
 
 /// Main application error type
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum TapprError {
     #[error("Radio Garden API error: {0}")]
     Radio(#[from] RadioError),
@@ -21,6 +22,7 @@ pub enum TapprError {
 
 /// Radio Garden API errors
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum RadioError {
     #[error("HTTP request failed: {0}")]
     Http(#[from] reqwest::Error),
@@ -46,6 +48,7 @@ pub enum RadioError {
 
 /// Audio processing errors
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum AudioError {
     #[error("Stream HTTP error: {0}")]
     StreamHttpError(reqwest::StatusCode),
@@ -83,6 +86,7 @@ pub enum AudioError {
 
 /// Playback errors
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum PlaybackError {
     #[error("Audio stream error: {0}")]
     Stream(String),
@@ -99,6 +103,7 @@ pub enum PlaybackError {
 
 /// TUI errors
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum TuiError {
     #[error("Terminal IO error: {0}")]
     Io(#[from] std::io::Error),
@@ -115,6 +120,7 @@ pub type Result<T> = std::result::Result<T, TapprError>;
 
 impl TapprError {
     /// Check if this error is recoverable (should retry)
+    #[allow(dead_code)]
     pub fn is_recoverable(&self) -> bool {
         match self {
             TapprError::Radio(RadioError::Http(_)) => true,

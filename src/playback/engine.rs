@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use rodio::{OutputStream, OutputStreamHandle, Sink};
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, info, instrument};
 
 use crate::audio::LoopBuffer;
 use crate::error::PlaybackError;

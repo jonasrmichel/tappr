@@ -3,7 +3,7 @@ mod decode;
 mod quantize;
 mod stream;
 
-pub use buffer::{LoopBuffer, RawAudioBuffer, CHANNELS, SAMPLE_RATE};
+pub use buffer::{LoopBuffer, CHANNELS, SAMPLE_RATE};
 pub use decode::AudioDecoder;
 pub use quantize::Quantizer;
 pub use stream::StreamCapture;
@@ -71,6 +71,7 @@ impl AudioPipeline {
     }
 
     /// Process with retry logic
+    #[allow(dead_code)]
     #[instrument(skip(self, station), fields(station_name = %station.name))]
     pub async fn process_station_with_retry(
         &self,

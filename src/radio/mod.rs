@@ -16,6 +16,7 @@ use crate::error::RadioError;
 /// Combined Radio Garden service with caching
 pub struct RadioService {
     client: RadioGardenClient,
+    #[allow(dead_code)]
     cache: Arc<RadioCache>,
 }
 
@@ -28,6 +29,7 @@ impl RadioService {
     }
 
     /// Get all places (with caching)
+    #[allow(dead_code)]
     #[instrument(skip(self))]
     pub async fn get_places(&self) -> Result<Vec<Place>, RadioError> {
         // Check cache first

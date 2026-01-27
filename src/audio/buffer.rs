@@ -34,6 +34,7 @@ impl RawAudioBuffer {
     }
 
     /// Number of frames (samples per channel)
+    #[allow(dead_code)]
     pub fn frame_count(&self) -> usize {
         self.samples.len() / self.channels as usize
     }
@@ -69,16 +70,19 @@ impl LoopBuffer {
     }
 
     /// Get sample rate
+    #[allow(dead_code)]
     pub fn sample_rate(&self) -> u32 {
         self.loop_info.sample_rate
     }
 
     /// Duration in seconds
+    #[allow(dead_code)]
     pub fn duration_secs(&self) -> f32 {
         self.loop_info.duration_samples as f32 / self.loop_info.sample_rate as f32
     }
 
     /// Number of frames (samples per channel)
+    #[allow(dead_code)]
     pub fn frame_count(&self) -> usize {
         self.samples.len() / CHANNELS as usize
     }
