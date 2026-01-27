@@ -4,6 +4,8 @@ mod cli;
 mod error;
 mod playback;
 mod radio;
+mod tasks;
+mod tui;
 
 use std::sync::Arc;
 
@@ -17,12 +19,14 @@ use crate::cli::Args;
 use crate::error::Result;
 use crate::playback::PlaybackEngine;
 use crate::radio::RadioService;
+use crate::tasks::{Channels, Producer, ProducerConfig, ProducerEvent};
+use crate::tui::TuiApp;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    // Initialize tracing
+    // Initialize tracing (to file if TUI is enabled)
     init_tracing(args.verbose);
 
     info!("tappr v{} starting", env!("CARGO_PKG_VERSION"));
@@ -77,28 +81,18 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
         "Starting session"
     );
 
-    // Initialize Radio Garden service
+    // Initialize services
     let radio = RadioService::new(args.rate_limit_ms, args.cache_dir.clone());
+    let audio = AudioPipeline::new(args.bpm_min, args.bpm_max);
 
-    // Get initial station
-    let station = radio
-        .next_station(args.search.as_deref(), args.region.as_deref())
-        .await?;
+    // Initialize playback engine
+    let mut playback = PlaybackEngine::new()?;
 
-    info!(
-        name = %station.name,
-        country = %station.country,
-        place = %station.place_name,
-        lat = station.latitude,
-        lon = station.longitude,
-        stream_url = ?station.stream_url,
-        "Found station"
-    );
+    // Set up channels for task communication
+    let channels = Channels::new();
+    let (cmd_tx, cmd_rx, event_tx, mut event_rx) = channels.split();
 
-    // Initialize audio pipeline
-    let audio_pipeline = AudioPipeline::new(args.bpm_min, args.bpm_max);
-
-    // Determine BPM mode
+    // Configure producer
     let bpm_mode = args
         .bpm
         .map(BpmMode::Fixed)
@@ -107,44 +101,81 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
             max: args.bpm_max,
         });
 
-    // Process the station (capture, decode, quantize)
-    info!("Processing audio...");
-    let loop_buffer = audio_pipeline
-        .process_station(
-            &station,
-            args.listen_seconds,
-            bpm_mode,
-            args.bars,
-            args.beats_per_bar(),
-        )
-        .await?;
+    let producer_config = ProducerConfig {
+        search: args.search.clone(),
+        region: args.region.clone(),
+        listen_seconds: args.listen_seconds,
+        station_change_seconds: args.station_change_seconds,
+        bars: args.bars,
+        beats_per_bar: args.beats_per_bar(),
+        bpm_mode,
+    };
 
-    info!(
-        bpm = loop_buffer.loop_info.bpm,
-        confidence = format!("{:.0}%", loop_buffer.loop_info.bpm_confidence * 100.0),
-        bars = loop_buffer.loop_info.bars,
-        duration_secs = loop_buffer.duration_secs(),
-        samples = loop_buffer.samples.len(),
-        "Loop ready"
+    // Start producer task
+    let producer = Producer::new(
+        producer_config,
+        radio,
+        audio,
+        Arc::clone(&state),
+        cmd_rx,
+        event_tx,
     );
+    tokio::spawn(async move {
+        producer.run().await;
+    });
 
-    // Initialize playback engine
-    let mut playback = PlaybackEngine::new()?;
+    // Initialize TUI
+    let mut tui = TuiApp::new(Arc::clone(&state), cmd_tx)?;
 
-    // Start playing the loop
-    playback.play(loop_buffer);
-    info!("Playback started - press Ctrl-C to stop");
+    info!("TUI started - press 'q' to quit");
 
-    // TODO: Phase 5 - Start producer task
-    // TODO: Phase 6 - Start TUI
+    // Main event loop
+    loop {
+        // Handle TUI input
+        let should_quit = tui.handle_input().await?;
+        if should_quit || state.is_quitting() {
+            break;
+        }
 
-    // Wait for shutdown signal
-    while !state.is_quitting() {
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        // Process producer events
+        while let Ok(event) = event_rx.try_recv() {
+            match event {
+                ProducerEvent::StationSelected(station) => {
+                    tui.set_loading(station);
+                }
+                ProducerEvent::LoopReady(buffer, station) => {
+                    let loop_info = buffer.loop_info.clone();
+
+                    // Start or swap playback
+                    if playback.is_playing() {
+                        playback.queue_next(buffer);
+                    } else {
+                        playback.play(buffer);
+                    }
+
+                    tui.set_playing(station, loop_info);
+                }
+                ProducerEvent::Error(msg) => {
+                    tui.set_error(msg);
+                }
+                ProducerEvent::Shutdown => {
+                    info!("Producer shutdown");
+                    break;
+                }
+            }
+        }
+
+        // Draw TUI
+        let settings = state.settings.read().await.clone();
+        tui.draw(&settings)?;
+
+        // Small delay to prevent busy loop
+        tokio::time::sleep(tokio::time::Duration::from_millis(16)).await; // ~60 FPS
     }
 
     // Clean shutdown
     playback.stop();
+    tui.cleanup();
 
     Ok(())
 }

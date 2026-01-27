@@ -1,0 +1,56 @@
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, Borders, Paragraph};
+
+use crate::app::{BpmMode, Settings};
+
+/// Render the settings panel
+pub fn render(frame: &mut Frame, area: Rect, settings: &Settings) {
+    let block = Block::default()
+        .title(" Settings ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let bpm_text = match settings.bpm_mode {
+        BpmMode::Auto { min, max } => format!("Auto ({:.0}-{:.0})", min, max),
+        BpmMode::Fixed(bpm) => format!("Fixed ({:.0})", bpm),
+    };
+
+    let lines = vec![
+        Line::from(vec![
+            Span::styled("BPM: ", Style::default().fg(Color::Gray)),
+            Span::styled(bpm_text, Style::default().fg(Color::Yellow)),
+        ]),
+        Line::from(vec![
+            Span::styled("Bars: ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                settings.bars.to_string(),
+                Style::default().fg(Color::Yellow),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Meter: ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                format!("{}/4", settings.beats_per_bar),
+                Style::default().fg(Color::Yellow),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Listen: ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                format!("{}s", settings.listen_seconds),
+                Style::default().fg(Color::White),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Change: ", Style::default().fg(Color::Gray)),
+            Span::styled(
+                format!("{}s", settings.station_change_seconds),
+                Style::default().fg(Color::White),
+            ),
+        ]),
+    ];
+
+    let paragraph = Paragraph::new(lines).block(block);
+    frame.render_widget(paragraph, area);
+}
