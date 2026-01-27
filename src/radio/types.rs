@@ -108,9 +108,13 @@ pub struct CountryRef {
     pub title: String,
 }
 
-/// Search response data
+/// Search response (different structure from other API responses)
 #[derive(Debug, Deserialize)]
-pub struct SearchData {
+pub struct SearchResponse {
+    #[allow(dead_code)]
+    pub took: Option<u32>,
+    #[allow(dead_code)]
+    pub query: Option<String>,
     pub hits: Option<SearchHits>,
 }
 
@@ -129,22 +133,40 @@ pub struct SearchHit {
 
 /// Search result source data
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct SearchSource {
     #[allow(dead_code)]
     pub code: Option<String>,
-    pub title: String,
-    pub url: String,
+    /// Nested page data with actual channel/place info
+    pub page: Option<SearchPage>,
     #[serde(rename = "type")]
     pub result_type: String,
-    /// Geo coordinates [lon, lat] (note: reversed from Place!)
-    pub geo: Option<[f64; 2]>,
+}
+
+/// Nested page data in search results
+#[derive(Debug, Deserialize)]
+pub struct SearchPage {
+    pub url: String,
+    pub title: String,
+    pub place: Option<PlaceRef>,
+    pub country: Option<CountryRef>,
+    #[allow(dead_code)]
+    pub subtitle: Option<String>,
 }
 
 impl SearchSource {
+    /// Get the page data
+    pub fn page(&self) -> Option<&SearchPage> {
+        self.page.as_ref()
+    }
+
     /// Extract ID from URL path
     pub fn id(&self) -> Option<&str> {
-        self.url.rsplit('/').next()
+        self.page.as_ref().and_then(|p| p.url.rsplit('/').next())
+    }
+
+    /// Get title from nested page
+    pub fn title(&self) -> Option<&str> {
+        self.page.as_ref().map(|p| p.title.as_str())
     }
 
     /// Check if this is a channel result
@@ -155,16 +177,6 @@ impl SearchSource {
     /// Check if this is a place result
     pub fn is_place(&self) -> bool {
         self.result_type == "place"
-    }
-
-    /// Get latitude (geo is [lon, lat] in search results)
-    pub fn latitude(&self) -> Option<f64> {
-        self.geo.map(|g| g[1])
-    }
-
-    /// Get longitude (geo is [lon, lat] in search results)
-    pub fn longitude(&self) -> Option<f64> {
-        self.geo.map(|g| g[0])
     }
 }
 

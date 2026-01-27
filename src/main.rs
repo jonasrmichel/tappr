@@ -7,10 +7,16 @@ mod radio;
 mod tasks;
 mod tui;
 
+use std::fs::File;
+use std::io;
+use std::panic;
 use std::sync::Arc;
 
 use clap::Parser;
+use crossterm::execute;
+use crossterm::terminal::{disable_raw_mode, LeaveAlternateScreen};
 use tracing::{error, info, Level};
+use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::EnvFilter;
 
 use crate::app::{AppState, BpmMode};
@@ -22,8 +28,21 @@ use crate::radio::RadioService;
 use crate::tasks::{Channels, Producer, ProducerConfig, ProducerEvent};
 use crate::tui::TuiApp;
 
+/// Restore terminal state (used for panic hook and cleanup)
+fn restore_terminal() {
+    let _ = disable_raw_mode();
+    let _ = execute!(io::stdout(), LeaveAlternateScreen);
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Set up panic hook to restore terminal
+    let default_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |info| {
+        restore_terminal();
+        default_hook(info);
+    }));
+
     let args = Args::parse();
 
     // Initialize tracing (to file if TUI is enabled)
@@ -46,26 +65,36 @@ async fn main() -> Result<()> {
     });
 
     // Run the application
-    if let Err(e) = run(state, args).await {
+    let result = run(state, args).await;
+
+    // Always restore terminal on exit
+    restore_terminal();
+
+    if let Err(ref e) = result {
         error!("Application error: {}", e);
-        return Err(e);
+    } else {
+        info!("tappr shutdown complete");
     }
 
-    info!("tappr shutdown complete");
-    Ok(())
+    result
 }
 
-/// Initialize tracing subscriber
+/// Initialize tracing subscriber (logs to file to avoid TUI interference)
 fn init_tracing(verbose: bool) {
     let level = if verbose { Level::DEBUG } else { Level::INFO };
 
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(level.to_string()));
 
+    // Log to file to avoid interfering with TUI
+    let log_file = File::create("/tmp/tappr.log").expect("Failed to create log file");
+
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
         .with_thread_ids(false)
+        .with_writer(log_file.with_max_level(Level::TRACE))
+        .with_ansi(false)
         .compact()
         .init();
 }

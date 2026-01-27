@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd CLAUDE.md and mascot to README\n\n- Add CLAUDE.md with project overview and build commands\n- Update README with centered mascot image and styling\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)",
+      "Bash(git checkout:*)",
+      "Bash(git commit:*)",
+      "WebSearch",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(curl:*)",
+      "Bash(ls:*)",
+      "Bash(timeout 15 cargo run:*)",
+      "Bash(python3:*)",
+      "Bash(echo:*)",
+      "Bash(git config:*)",
+      "Bash(__NEW_LINE_126e78f3427fe1c1__ echo -e \"\\\\n\\\\nTrying different query \\(london\\):\")",
+      "Bash(git filter-branch:*)",
+      "Bash(git stash:*)",
+      "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch:*)",
+      "Bash(git for-each-ref:*)",
+      "Bash(xargs -r -n 1 git update-ref -d)",
+      "Bash(git push:*)"
+    ]
+  }
+}

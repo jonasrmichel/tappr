@@ -114,10 +114,10 @@ impl RadioGardenClient {
     #[instrument(skip(self))]
     pub async fn search(&self, query: &str) -> Result<Vec<SearchSource>, RadioError> {
         let url = format!("{}/search?q={}", BASE_URL, urlencoding::encode(query));
-        let response: ApiResponse<SearchData> = self.get_json(&url).await?;
+        // Search endpoint has different response structure (not wrapped in ApiResponse)
+        let response: SearchResponse = self.get_json(&url).await?;
 
         let results: Vec<SearchSource> = response
-            .data
             .hits
             .map(|h| h.hits.into_iter().map(|hit| hit.source).collect())
             .unwrap_or_default();
@@ -161,29 +161,16 @@ impl RadioGardenClient {
     pub async fn search_station(&self, query: &str) -> Result<StationInfo, RadioError> {
         let results = self.search(query).await?;
 
-        // Find first channel result
+        // Find first channel result with valid page data
         let channel = results
             .iter()
-            .find(|r| r.is_channel())
+            .find(|r| r.is_channel() && r.page().is_some())
             .ok_or(RadioError::NoStationsFound)?;
 
         let channel_id = channel.id().ok_or(RadioError::NoStationsFound)?;
 
-        // If we have geo from search, use it; otherwise fetch details
-        if let (Some(lat), Some(lon)) = (channel.latitude(), channel.longitude()) {
-            let stream_url = self.get_stream_url(channel_id).await?;
-            Ok(StationInfo {
-                id: channel_id.to_string(),
-                name: channel.title.clone(),
-                country: String::new(), // Not available in search
-                place_name: String::new(),
-                latitude: lat,
-                longitude: lon,
-                stream_url: Some(stream_url),
-            })
-        } else {
-            self.build_station_info(channel_id, None).await
-        }
+        // Fetch full channel details to get accurate location
+        self.build_station_info(channel_id, None).await
     }
 
     /// Get station by region/country
