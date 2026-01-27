@@ -27,16 +27,16 @@ pub struct Place {
     pub size: u32, // number of stations
     #[allow(dead_code)]
     pub boost: bool,
-    pub geo: [f64; 2], // [lat, lon]
+    pub geo: [f64; 2], // [lon, lat] - note: Radio Garden uses [longitude, latitude]
 }
 
 impl Place {
     pub fn latitude(&self) -> f64 {
-        self.geo[0]
+        self.geo[1] // geo is [lon, lat]
     }
 
     pub fn longitude(&self) -> f64 {
-        self.geo[1]
+        self.geo[0] // geo is [lon, lat]
     }
 }
 

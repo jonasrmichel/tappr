@@ -11,7 +11,8 @@ use crate::error::RadioError;
 use super::types::*;
 
 const BASE_URL: &str = "https://radio.garden/api";
-const USER_AGENT: &str = concat!("tappr/", env!("CARGO_PKG_VERSION"));
+// Use browser-like User-Agent to avoid Cloudflare blocking
+const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 /// Radio Garden API client
 pub struct RadioGardenClient {
