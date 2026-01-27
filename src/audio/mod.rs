@@ -2,11 +2,16 @@ mod buffer;
 mod decode;
 mod quantize;
 mod stream;
+mod stretch;
 
 pub use buffer::{LoopBuffer, CHANNELS, SAMPLE_RATE};
 pub use decode::AudioDecoder;
 pub use quantize::Quantizer;
 pub use stream::StreamCapture;
+
+// TimeStretcher is used internally by Quantizer
+#[allow(unused_imports)]
+pub use stretch::TimeStretcher;
 
 use tracing::{debug, error, instrument};
 

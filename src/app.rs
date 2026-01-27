@@ -3,6 +3,7 @@ use std::sync::Arc;
 use tokio::sync::{watch, RwLock};
 
 use crate::cli::Args;
+use crate::playback::{list_audio_devices, default_device_index, AudioDevice};
 
 /// Station metadata
 #[derive(Debug, Clone)]
@@ -34,10 +35,14 @@ impl Default for StationInfo {
 /// Loop metadata after quantization
 #[derive(Debug, Clone)]
 pub struct LoopInfo {
-    /// Detected or fixed BPM
+    /// Target/output BPM (after time-stretching if applied)
     pub bpm: f32,
+    /// Original detected BPM of source audio (before time-stretching)
+    pub source_bpm: f32,
     /// BPM detection confidence (0.0-1.0)
     pub bpm_confidence: f32,
+    /// Whether time-stretching was applied
+    pub time_stretched: bool,
     /// Number of bars in the loop
     pub bars: u8,
     /// Beats per bar
@@ -88,6 +93,10 @@ pub struct Settings {
     pub min_rms: f32,
     #[allow(dead_code)]
     pub max_silence: f32,
+    /// Selected audio output device index
+    pub audio_device_index: usize,
+    /// Cached list of available audio devices
+    pub audio_devices: Vec<AudioDevice>,
 }
 
 impl Settings {
@@ -100,6 +109,9 @@ impl Settings {
                 max: args.bpm_max,
             });
 
+        let audio_devices = list_audio_devices();
+        let audio_device_index = default_device_index();
+
         Self {
             bpm_mode,
             bars: args.bars,
@@ -109,24 +121,30 @@ impl Settings {
             station_change_seconds: args.station_change_seconds,
             min_rms: args.min_rms,
             max_silence: args.max_silence,
+            audio_device_index,
+            audio_devices,
         }
     }
 
-    /// Cycle bars through 1 -> 2 -> 4 -> 1
+    /// Cycle bars through 1 -> 2 -> 4 -> 8 -> 16 -> 1
     pub fn cycle_bars_up(&mut self) {
         self.bars = match self.bars {
             1 => 2,
             2 => 4,
+            4 => 8,
+            8 => 16,
             _ => 1,
         };
     }
 
-    /// Cycle bars through 4 -> 2 -> 1 -> 4
+    /// Cycle bars through 16 -> 8 -> 4 -> 2 -> 1 -> 16
     pub fn cycle_bars_down(&mut self) {
         self.bars = match self.bars {
+            16 => 8,
+            8 => 4,
             4 => 2,
             2 => 1,
-            _ => 4,
+            _ => 16,
         };
     }
 
@@ -136,6 +154,37 @@ impl Settings {
             BpmMode::Auto { .. } => BpmMode::Fixed(120.0),
             BpmMode::Fixed(_) => BpmMode::Auto { min: 70.0, max: 170.0 },
         };
+    }
+
+    /// Cycle to next audio device (refreshes device list first)
+    pub fn next_audio_device(&mut self) -> bool {
+        // Refresh device list in case devices changed
+        self.audio_devices = list_audio_devices();
+
+        if self.audio_devices.is_empty() {
+            return false;
+        }
+
+        // Ensure current index is valid
+        if self.audio_device_index >= self.audio_devices.len() {
+            self.audio_device_index = 0;
+        }
+
+        let new_index = (self.audio_device_index + 1) % self.audio_devices.len();
+        if new_index != self.audio_device_index {
+            self.audio_device_index = new_index;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get the current audio device name
+    pub fn current_audio_device_name(&self) -> &str {
+        self.audio_devices
+            .get(self.audio_device_index)
+            .map(|d| d.name.as_str())
+            .unwrap_or("Default")
     }
 }
 

@@ -8,6 +8,8 @@ use crate::audio::LoopBuffer;
 pub enum ProducerCommand {
     /// Skip to next station immediately
     NextStation,
+    /// Audio device changed - main loop should recreate playback engine
+    AudioDeviceChanged(usize),
     /// Shutdown the producer
     Quit,
 }
@@ -20,7 +22,10 @@ pub enum ProducerEvent {
     /// New loop ready for playback
     LoopReady(LoopBuffer, StationInfo),
     /// Error occurred (station skipped)
+    #[allow(dead_code)]
     Error(String),
+    /// Audio device changed - main loop should recreate playback engine
+    AudioDeviceChanged(usize),
     /// Producer is shutting down
     Shutdown,
 }

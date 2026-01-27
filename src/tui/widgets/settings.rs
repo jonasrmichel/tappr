@@ -15,6 +15,14 @@ pub fn render(frame: &mut Frame, area: Rect, settings: &Settings) {
         BpmMode::Fixed(bpm) => format!("Fixed ({:.0})", bpm),
     };
 
+    // Truncate device name if too long
+    let device_name = settings.current_audio_device_name();
+    let device_display = if device_name.len() > 18 {
+        format!("{}...", &device_name[..15])
+    } else {
+        device_name.to_string()
+    };
+
     let lines = vec![
         Line::from(vec![
             Span::styled("BPM: ", Style::default().fg(Color::Gray)),
@@ -36,16 +44,13 @@ pub fn render(frame: &mut Frame, area: Rect, settings: &Settings) {
         ]),
         Line::from(""),
         Line::from(vec![
+            Span::styled("Device: ", Style::default().fg(Color::Gray)),
+            Span::styled(device_display, Style::default().fg(Color::Magenta)),
+        ]),
+        Line::from(vec![
             Span::styled("Listen: ", Style::default().fg(Color::Gray)),
             Span::styled(
                 format!("{}s", settings.listen_seconds),
-                Style::default().fg(Color::White),
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled("Change: ", Style::default().fg(Color::Gray)),
-            Span::styled(
-                format!("{}s", settings.station_change_seconds),
                 Style::default().fg(Color::White),
             ),
         ]),

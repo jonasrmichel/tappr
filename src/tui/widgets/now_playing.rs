@@ -59,7 +59,7 @@ pub fn render(
             ]
         }
         (Some(station), Some(info), PlayStatus::Playing) => {
-            vec![
+            let mut lines = vec![
                 Line::from(Span::styled(
                     &station.name,
                     Style::default().bold().fg(Color::White),
@@ -69,7 +69,25 @@ pub fn render(
                     Style::default().fg(Color::Gray),
                 )),
                 Line::from(""),
-                Line::from(vec![
+            ];
+
+            // Show BPM info with time-stretch indicator if applied
+            if info.time_stretched {
+                lines.push(Line::from(vec![
+                    Span::styled("BPM: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{:.0}", info.source_bpm),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                    Span::styled(" -> ", Style::default().fg(Color::Yellow)),
+                    Span::styled(
+                        format!("{:.0}", info.bpm),
+                        Style::default().fg(Color::Magenta).bold(),
+                    ),
+                    Span::styled(" [stretched]", Style::default().fg(Color::Yellow).italic()),
+                ]));
+            } else {
+                lines.push(Line::from(vec![
                     Span::styled("BPM: ", Style::default().fg(Color::Gray)),
                     Span::styled(
                         format!("{:.1}", info.bpm),
@@ -80,22 +98,25 @@ pub fn render(
                         format!("({:.0}%)", info.bpm_confidence * 100.0),
                         Style::default().fg(Color::DarkGray),
                     ),
-                ]),
-                Line::from(vec![
-                    Span::styled("Loop: ", Style::default().fg(Color::Gray)),
-                    Span::styled(
-                        format!("{} bars", info.bars),
-                        Style::default().fg(Color::Cyan),
-                    ),
-                ]),
-                Line::from(vec![
-                    Span::styled("Coords: ", Style::default().fg(Color::Gray)),
-                    Span::styled(
-                        format!("{:.2}, {:.2}", station.latitude, station.longitude),
-                        Style::default().fg(Color::DarkGray),
-                    ),
-                ]),
-            ]
+                ]));
+            }
+
+            lines.push(Line::from(vec![
+                Span::styled("Loop: ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    format!("{} bars", info.bars),
+                    Style::default().fg(Color::Cyan),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::styled("Coords: ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    format!("{:.2}, {:.2}", station.latitude, station.longitude),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]));
+
+            lines
         }
         (_, _, PlayStatus::Error(msg)) => {
             vec![

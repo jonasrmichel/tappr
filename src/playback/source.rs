@@ -1,82 +1,37 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use parking_lot::Mutex;
 use rodio::Source;
 
 use crate::audio::{LoopBuffer, CHANNELS, SAMPLE_RATE};
 
-/// Shared state for controlling the looping source
-pub struct LoopControl {
-    /// Current buffer being played
-    current: LoopBuffer,
-    /// Pending buffer to swap to at bar boundary
-    pending: Option<LoopBuffer>,
+/// One-shot audio source that plays a buffer once and ends
+pub struct OneShotSource {
+    /// Audio samples
+    samples: Arc<[f32]>,
     /// Current playback position (sample index)
     position: usize,
+    /// Total number of samples
+    total_samples: usize,
 }
 
-impl LoopControl {
-    fn new(buffer: LoopBuffer) -> Self {
+impl OneShotSource {
+    /// Create a new one-shot source with the given buffer
+    pub fn new(buffer: LoopBuffer) -> Self {
+        let total_samples = buffer.samples.len();
         Self {
-            current: buffer,
-            pending: None,
+            samples: buffer.samples,
             position: 0,
+            total_samples,
         }
-    }
-
-    /// Queue a new buffer to swap at the next bar boundary
-    pub fn queue_swap(&mut self, buffer: LoopBuffer) {
-        self.pending = Some(buffer);
-    }
-
-    /// Check if at a bar boundary (within a small tolerance)
-    fn at_bar_boundary(&self) -> bool {
-        let samples_per_bar = self.current.samples_per_bar();
-        if samples_per_bar == 0 {
-            return false;
-        }
-        let position_in_bar = self.position % samples_per_bar;
-        // Allow swap within first 64 samples of a bar
-        position_in_bar < 64
-    }
-
-    /// Get the next sample and advance position
-    fn next_sample(&mut self) -> f32 {
-        // Check for pending swap at bar boundary
-        if self.pending.is_some() && self.at_bar_boundary() {
-            if let Some(new_buffer) = self.pending.take() {
-                self.current = new_buffer;
-                self.position = 0;
-            }
-        }
-
-        let sample = self.current.samples[self.position];
-        self.position = (self.position + 1) % self.current.samples.len();
-        sample
     }
 }
 
-/// Custom rodio source for seamless looping with hot-swap capability
-pub struct LoopingSource {
-    control: Arc<Mutex<LoopControl>>,
-}
-
-impl LoopingSource {
-    /// Create a new looping source with the given buffer
-    pub fn new(buffer: LoopBuffer) -> (Self, Arc<Mutex<LoopControl>>) {
-        let control = Arc::new(Mutex::new(LoopControl::new(buffer)));
-        let source = Self {
-            control: Arc::clone(&control),
-        };
-        (source, control)
-    }
-}
-
-impl Source for LoopingSource {
+impl Source for OneShotSource {
     fn current_frame_len(&self) -> Option<usize> {
-        // Return None for infinite source
-        None
+        // Return remaining frames
+        let remaining = self.total_samples.saturating_sub(self.position);
+        Some(remaining / CHANNELS as usize)
     }
 
     fn channels(&self) -> u16 {
@@ -88,17 +43,23 @@ impl Source for LoopingSource {
     }
 
     fn total_duration(&self) -> Option<Duration> {
-        // Infinite looping
-        None
+        let frames = self.total_samples / CHANNELS as usize;
+        let secs = frames as f64 / SAMPLE_RATE as f64;
+        Some(Duration::from_secs_f64(secs))
     }
 }
 
-impl Iterator for LoopingSource {
+impl Iterator for OneShotSource {
     type Item = f32;
 
     fn next(&mut self) -> Option<f32> {
-        let mut control = self.control.lock();
-        Some(control.next_sample())
+        if self.position >= self.total_samples {
+            return None; // End of playback
+        }
+
+        let sample = self.samples[self.position];
+        self.position += 1;
+        Some(sample)
     }
 }
 
@@ -107,14 +68,16 @@ mod tests {
     use super::*;
     use crate::app::LoopInfo;
 
-    fn create_test_buffer(samples: Vec<f32>, bars: u8) -> LoopBuffer {
+    fn create_test_buffer(samples: Vec<f32>) -> LoopBuffer {
         let duration_samples = samples.len() / CHANNELS as usize;
         LoopBuffer::new(
             samples,
             LoopInfo {
                 bpm: 120.0,
+                source_bpm: 120.0,
                 bpm_confidence: 1.0,
-                bars,
+                time_stretched: false,
+                bars: 1,
                 beats_per_bar: 4,
                 duration_samples,
                 sample_rate: SAMPLE_RATE,
@@ -123,50 +86,31 @@ mod tests {
     }
 
     #[test]
-    fn test_looping_source_loops() {
-        // Create a small buffer
+    fn test_one_shot_source_plays_once() {
         let samples = vec![0.1, 0.2, 0.3, 0.4]; // 2 stereo frames
-        let buffer = create_test_buffer(samples.clone(), 1);
+        let buffer = create_test_buffer(samples);
 
-        let (mut source, _control) = LoopingSource::new(buffer);
+        let mut source = OneShotSource::new(buffer);
 
-        // Read more samples than the buffer contains
-        let output: Vec<f32> = (0..8).filter_map(|_| source.next()).collect();
+        // Read all samples
+        let output: Vec<f32> = std::iter::from_fn(|| source.next()).collect();
 
-        // Should loop: [0.1, 0.2, 0.3, 0.4, 0.1, 0.2, 0.3, 0.4]
-        assert_eq!(output.len(), 8);
-        assert_eq!(output[0], 0.1);
-        assert_eq!(output[4], 0.1); // Looped
+        // Should play exactly once, no looping
+        assert_eq!(output.len(), 4);
+        assert_eq!(output, vec![0.1, 0.2, 0.3, 0.4]);
+
+        // Next call should return None
+        assert!(source.next().is_none());
     }
 
     #[test]
-    fn test_buffer_swap() {
-        // Create initial buffer
-        let samples1 = vec![0.1; 128]; // Small buffer
-        let buffer1 = create_test_buffer(samples1, 1);
+    fn test_one_shot_source_duration() {
+        let samples = vec![0.0; 96000]; // 1 second at 48kHz stereo
+        let buffer = create_test_buffer(samples);
 
-        let (mut source, control) = LoopingSource::new(buffer1);
+        let source = OneShotSource::new(buffer);
 
-        // Queue a new buffer
-        let samples2 = vec![0.9; 128];
-        let buffer2 = create_test_buffer(samples2, 1);
-
-        {
-            let mut ctrl = control.lock();
-            ctrl.queue_swap(buffer2);
-        }
-
-        // Read until swap happens (at bar boundary)
-        let mut found_new_value = false;
-        for _ in 0..256 {
-            if let Some(sample) = source.next() {
-                if (sample - 0.9).abs() < 0.01 {
-                    found_new_value = true;
-                    break;
-                }
-            }
-        }
-
-        assert!(found_new_value, "Buffer should have swapped");
+        let duration = source.total_duration().unwrap();
+        assert!((duration.as_secs_f64() - 1.0).abs() < 0.01);
     }
 }

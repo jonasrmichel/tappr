@@ -20,11 +20,9 @@ use tracing_subscriber::fmt::writer::MakeWriterExt;
 use tracing_subscriber::EnvFilter;
 
 use crate::app::{AppState, BpmMode};
-use crate::audio::AudioPipeline;
 use crate::cli::Args;
 use crate::error::Result;
 use crate::playback::PlaybackEngine;
-use crate::radio::RadioService;
 use crate::tasks::{Channels, Producer, ProducerConfig, ProducerEvent};
 use crate::tui::TuiApp;
 
@@ -110,12 +108,12 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
         "Starting session"
     );
 
-    // Initialize services
-    let radio = RadioService::new(args.rate_limit_ms, args.cache_dir.clone());
-    let audio = AudioPipeline::new(args.bpm_min, args.bpm_max);
-
-    // Initialize playback engine
-    let mut playback = PlaybackEngine::new()?;
+    // Initialize playback engine with default audio device
+    let initial_device = {
+        let settings = state.settings.read().await;
+        settings.audio_device_index
+    };
+    let mut playback = PlaybackEngine::with_device(Some(initial_device))?;
 
     // Set up channels for task communication
     let channels = Channels::new();
@@ -140,14 +138,16 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
         bpm_mode,
     };
 
-    // Start producer task
-    let producer = Producer::new(
+    // Start producer task with parallel workers
+    let producer = Producer::with_params(
         producer_config,
-        radio,
-        audio,
         Arc::clone(&state),
         cmd_rx,
         event_tx,
+        args.rate_limit_ms,
+        args.cache_dir.clone(),
+        args.bpm_min,
+        args.bpm_max,
     );
     tokio::spawn(async move {
         producer.run().await;
@@ -175,17 +175,36 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                 ProducerEvent::LoopReady(buffer, station) => {
                     let loop_info = buffer.loop_info.clone();
 
-                    // Start or swap playback
-                    if playback.is_playing() {
-                        playback.queue_next(buffer);
-                    } else {
+                    // Append to queue for gapless playback
+                    // First clip uses play(), subsequent clips use append()
+                    if playback.is_finished() {
+                        // This clip will play immediately
                         playback.play(buffer);
+                        tui.set_now_playing(station, loop_info);
+                    } else {
+                        // This clip is queued for later
+                        playback.append(buffer);
+                        tui.add_to_queue(station, loop_info);
                     }
-
-                    tui.set_playing(station, loop_info);
                 }
                 ProducerEvent::Error(msg) => {
                     tui.set_error(msg);
+                }
+                ProducerEvent::AudioDeviceChanged(device_index) => {
+                    info!(device_index, "Switching audio device");
+                    // Stop current playback
+                    playback.stop();
+                    // Recreate playback engine with new device
+                    match PlaybackEngine::with_device(Some(device_index)) {
+                        Ok(new_playback) => {
+                            playback = new_playback;
+                            info!("Audio device switched successfully");
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Failed to switch audio device");
+                            tui.set_error(format!("Device switch failed: {}", e));
+                        }
+                    }
                 }
                 ProducerEvent::Shutdown => {
                     info!("Producer shutdown");

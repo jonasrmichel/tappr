@@ -1,6 +1,7 @@
+use std::collections::VecDeque;
 use std::io::{self, Stdout};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
@@ -14,8 +15,9 @@ use crate::app::{AppState, LoopInfo, Settings, StationInfo};
 use crate::error::TuiError;
 use crate::tasks::ProducerCommand;
 
-use super::widgets::{now_playing, settings, world_map};
+use super::widgets::{now_playing, settings, up_next, world_map};
 use now_playing::PlayStatus;
+use up_next::QueuedStation;
 
 /// TUI application state
 pub struct TuiApp {
@@ -23,9 +25,15 @@ pub struct TuiApp {
     cmd_tx: mpsc::Sender<ProducerCommand>,
     terminal: Terminal<CrosstermBackend<Stdout>>,
 
+    // Now playing state (what's actually playing right now)
+    now_playing_station: Option<StationInfo>,
+    now_playing_loop: Option<LoopInfo>,
+    now_playing_started: Option<Instant>,
+
+    // Queue of upcoming stations
+    up_next: VecDeque<QueuedStation>,
+
     // Display state
-    current_station: Option<StationInfo>,
-    current_loop: Option<LoopInfo>,
     station_history: Vec<StationInfo>,
     play_status: PlayStatus,
     last_error: Option<String>,
@@ -48,8 +56,10 @@ impl TuiApp {
             state,
             cmd_tx,
             terminal,
-            current_station: None,
-            current_loop: None,
+            now_playing_station: None,
+            now_playing_loop: None,
+            now_playing_started: None,
+            up_next: VecDeque::new(),
             station_history: Vec::new(),
             play_status: PlayStatus::Idle,
             last_error: None,
@@ -65,16 +75,19 @@ impl TuiApp {
     }
 
     /// Update display with new station (loading state)
-    pub fn set_loading(&mut self, station: StationInfo) {
-        self.current_station = Some(station);
-        self.current_loop = None;
-        self.play_status = PlayStatus::Loading;
+    /// This is called when a worker starts processing a station
+    pub fn set_loading(&mut self, _station: StationInfo) {
+        // Loading state is now shown implicitly when we have items in queue
+        // but nothing playing yet, or when queue is empty
+        if self.now_playing_station.is_none() && self.up_next.is_empty() {
+            self.play_status = PlayStatus::Loading;
+        }
     }
 
-    /// Update display with new loop (playing state)
-    pub fn set_playing(&mut self, station: StationInfo, loop_info: LoopInfo) {
+    /// Set a station as now playing immediately (first clip)
+    pub fn set_now_playing(&mut self, station: StationInfo, loop_info: LoopInfo) {
         // Add previous station to history
-        if let Some(prev) = self.current_station.take() {
+        if let Some(prev) = self.now_playing_station.take() {
             self.station_history.push(prev);
             // Keep last 10 stations
             if self.station_history.len() > 10 {
@@ -82,10 +95,56 @@ impl TuiApp {
             }
         }
 
-        self.current_station = Some(station);
-        self.current_loop = Some(loop_info);
+        self.now_playing_station = Some(station);
+        self.now_playing_loop = Some(loop_info);
+        self.now_playing_started = Some(Instant::now());
         self.play_status = PlayStatus::Playing;
         self.last_error = None;
+    }
+
+    /// Add a station to the up next queue (subsequent clips)
+    pub fn add_to_queue(&mut self, station: StationInfo, loop_info: LoopInfo) {
+        self.up_next.push_back(QueuedStation { station, loop_info });
+        self.play_status = PlayStatus::Playing;
+        self.last_error = None;
+    }
+
+    /// Check if current clip has finished and advance queue if needed
+    pub fn advance_queue_if_needed(&mut self) {
+        if let (Some(loop_info), Some(started)) = (&self.now_playing_loop, self.now_playing_started) {
+            let duration_secs = loop_info.duration_samples as f32 / loop_info.sample_rate as f32;
+            let elapsed = started.elapsed().as_secs_f32();
+
+            // Add a small buffer (100ms) to avoid advancing too early
+            if elapsed >= duration_secs - 0.1 {
+                // Current clip is done, advance to next
+                if let Some(next) = self.up_next.pop_front() {
+                    // Add current to history
+                    if let Some(prev) = self.now_playing_station.take() {
+                        self.station_history.push(prev);
+                        if self.station_history.len() > 10 {
+                            self.station_history.remove(0);
+                        }
+                    }
+
+                    self.now_playing_station = Some(next.station);
+                    self.now_playing_loop = Some(next.loop_info);
+                    self.now_playing_started = Some(Instant::now());
+                }
+            }
+        }
+    }
+
+    /// Legacy method for compatibility - routes to appropriate method
+    #[allow(dead_code)]
+    pub fn set_playing(&mut self, station: StationInfo, loop_info: LoopInfo) {
+        // This is kept for backwards compatibility but main.rs should use
+        // set_now_playing() or add_to_queue() directly
+        if self.now_playing_station.is_none() {
+            self.set_now_playing(station, loop_info);
+        } else {
+            self.add_to_queue(station, loop_info);
+        }
     }
 
     /// Update display with error
@@ -96,8 +155,15 @@ impl TuiApp {
 
     /// Draw the TUI
     pub fn draw(&mut self, settings: &Settings) -> Result<(), TuiError> {
-        let current_station = self.current_station.clone();
-        let current_loop = self.current_loop.clone();
+        // Advance queue if current clip has finished
+        self.advance_queue_if_needed();
+
+        let now_playing_station = self.now_playing_station.clone();
+        let now_playing_loop = self.now_playing_loop.clone();
+        let up_next_queue: Vec<QueuedStation> = self.up_next.iter().map(|q| QueuedStation {
+            station: q.station.clone(),
+            loop_info: q.loop_info.clone(),
+        }).collect();
         let station_history = self.station_history.clone();
         let play_status = match &self.play_status {
             PlayStatus::Idle => PlayStatus::Idle,
@@ -129,10 +195,14 @@ impl TuiApp {
                 .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
                 .split(main_chunks[1]);
 
-            // Left panel: settings + now playing
+            // Left panel: settings + now playing + up next
             let left_chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Length(9), Constraint::Min(5)])
+                .constraints([
+                    Constraint::Length(9),  // Settings
+                    Constraint::Length(10), // Now Playing
+                    Constraint::Min(5),     // Up Next
+                ])
                 .split(body_chunks[0]);
 
             // Render panels
@@ -140,14 +210,15 @@ impl TuiApp {
             now_playing::render(
                 frame,
                 left_chunks[1],
-                current_station.as_ref(),
-                current_loop.as_ref(),
+                now_playing_station.as_ref(),
+                now_playing_loop.as_ref(),
                 &play_status,
             );
+            up_next::render(frame, left_chunks[2], &up_next_queue);
             world_map::render(
                 frame,
                 body_chunks[1],
-                current_station.as_ref(),
+                now_playing_station.as_ref(),
                 &station_history,
             );
 
@@ -189,6 +260,15 @@ impl TuiApp {
                             debug!("Decrease bars");
                             let mut settings = self.state.settings.write().await;
                             settings.cycle_bars_down();
+                        }
+                        KeyCode::Char('d') => {
+                            debug!("Cycle audio device");
+                            let mut settings = self.state.settings.write().await;
+                            if settings.next_audio_device() {
+                                let device_index = settings.audio_device_index;
+                                drop(settings); // Release lock before async send
+                                let _ = self.cmd_tx.send(ProducerCommand::AudioDeviceChanged(device_index)).await;
+                            }
                         }
                         _ => {}
                     }
@@ -253,7 +333,9 @@ fn render_footer(frame: &mut Frame, area: Rect, error: Option<&str>) {
             Span::styled("b", Style::default().fg(Color::Yellow)),
             Span::raw(":bpm  "),
             Span::styled("+/-", Style::default().fg(Color::Yellow)),
-            Span::raw(":bars"),
+            Span::raw(":bars  "),
+            Span::styled("d", Style::default().fg(Color::Yellow)),
+            Span::raw(":device"),
         ])
     };
 

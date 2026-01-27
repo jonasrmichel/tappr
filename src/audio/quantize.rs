@@ -1,9 +1,10 @@
-use tracing::{debug, instrument};
+use tracing::{debug, info, instrument};
 
 use crate::app::{BpmMode, LoopInfo};
 use crate::error::AudioError;
 
 use super::buffer::{LoopBuffer, RawAudioBuffer, CHANNELS, SAMPLE_RATE};
+use super::stretch::TimeStretcher;
 
 /// BPM estimation result
 struct BpmEstimate {
@@ -11,20 +12,28 @@ struct BpmEstimate {
     confidence: f32,
 }
 
-/// Audio quantizer for beat alignment
+/// Audio quantizer for beat alignment with time-stretching
 pub struct Quantizer {
-    #[allow(dead_code)]
     min_bpm: f32,
-    #[allow(dead_code)]
     max_bpm: f32,
+    stretcher: TimeStretcher,
 }
 
 impl Quantizer {
     pub fn new(min_bpm: f32, max_bpm: f32) -> Self {
-        Self { min_bpm, max_bpm }
+        Self {
+            min_bpm,
+            max_bpm,
+            stretcher: TimeStretcher::new(),
+        }
     }
 
-    /// Quantize raw audio to a loopable buffer
+    /// Quantize raw audio to a loopable buffer with tempo matching
+    ///
+    /// This method:
+    /// 1. Detects the BPM of the source audio
+    /// 2. Time-stretches to match the target BPM (if using Fixed mode)
+    /// 3. Extracts a beat-aligned loop segment
     #[instrument(skip(self, raw))]
     pub fn quantize(
         &self,
@@ -39,26 +48,47 @@ impl Quantizer {
             "Starting quantization"
         );
 
-        // Step 1: Determine BPM
-        let (bpm, confidence) = match bpm_mode {
-            BpmMode::Fixed(bpm) => {
-                debug!(bpm, "Using fixed BPM");
-                (bpm, 1.0)
-            }
-            BpmMode::Auto { min, max } => {
-                let estimate = self.detect_bpm(&raw, min, max);
-                debug!(
-                    bpm = estimate.bpm,
-                    confidence = estimate.confidence,
-                    "Detected BPM"
+        // Step 1: Always detect source BPM first
+        let source_estimate = self.detect_bpm(&raw, self.min_bpm, self.max_bpm);
+        let source_bpm = source_estimate.bpm;
+        let detection_confidence = source_estimate.confidence;
+
+        debug!(
+            source_bpm,
+            confidence = detection_confidence,
+            "Detected source BPM"
+        );
+
+        // Step 2: Determine target BPM and whether to time-stretch
+        let (target_bpm, confidence, audio_to_process) = match bpm_mode {
+            BpmMode::Fixed(fixed_bpm) => {
+                // Time-stretch to match the fixed target BPM
+                info!(
+                    source_bpm,
+                    target_bpm = fixed_bpm,
+                    "Time-stretching to fixed BPM"
                 );
-                (estimate.bpm, estimate.confidence)
+
+                let stretched = self.stretcher.stretch_to_bpm(&raw, source_bpm, fixed_bpm);
+
+                debug!(
+                    original_samples = raw.samples.len(),
+                    stretched_samples = stretched.samples.len(),
+                    "Time stretch complete"
+                );
+
+                (fixed_bpm, 1.0, stretched)
+            }
+            BpmMode::Auto { .. } => {
+                // Use detected BPM, no time-stretching needed
+                debug!(source_bpm, "Using detected BPM (no time-stretch)");
+                (source_bpm, detection_confidence, raw)
             }
         };
 
-        // Step 2: Calculate target loop length in samples
+        // Step 3: Calculate target loop length in samples (at the target BPM)
         let total_beats = bars as u32 * beats_per_bar as u32;
-        let beat_duration_secs = 60.0 / bpm;
+        let beat_duration_secs = 60.0 / target_bpm;
         let loop_duration_secs = beat_duration_secs * total_beats as f32;
         let target_frames = (loop_duration_secs * SAMPLE_RATE as f32) as usize;
         let target_samples = target_frames * CHANNELS as usize;
@@ -70,14 +100,14 @@ impl Quantizer {
             "Calculated loop length"
         );
 
-        // Verify we have enough audio
-        if raw.samples.len() < target_samples {
+        // Verify we have enough audio after stretching
+        if audio_to_process.samples.len() < target_samples {
             return Err(AudioError::AudioTooShort(loop_duration_secs));
         }
 
-        // Step 3: Find best starting point using onset detection
-        let onsets = self.detect_onsets(&raw);
-        let start_sample = self.find_best_start(&raw, &onsets, target_samples);
+        // Step 4: Find best starting point using onset detection
+        let onsets = self.detect_onsets(&audio_to_process);
+        let start_sample = self.find_best_start(&audio_to_process, &onsets, target_samples);
 
         debug!(
             start_sample,
@@ -85,27 +115,32 @@ impl Quantizer {
             "Selected start point"
         );
 
-        // Step 4: Extract loop segment
+        // Step 5: Extract loop segment
         let end_sample = start_sample + target_samples;
-        let mut samples = raw.samples[start_sample..end_sample].to_vec();
+        let mut samples = audio_to_process.samples[start_sample..end_sample].to_vec();
 
-        // Step 5: Apply crossfade at loop boundaries to prevent clicks
+        // Step 6: Apply crossfade at loop boundaries to prevent clicks
         self.apply_fades(&mut samples);
 
         // Build result
+        let time_stretched = matches!(bpm_mode, BpmMode::Fixed(_)) && (source_bpm - target_bpm).abs() > 0.5;
         let loop_info = LoopInfo {
-            bpm,
+            bpm: target_bpm,
+            source_bpm,
             bpm_confidence: confidence,
+            time_stretched,
             bars,
             beats_per_bar,
             duration_samples: target_frames,
             sample_rate: SAMPLE_RATE,
         };
 
-        debug!(
-            bpm = loop_info.bpm,
+        info!(
+            source_bpm,
+            target_bpm = loop_info.bpm,
             bars = loop_info.bars,
             duration_secs = loop_duration_secs,
+            time_stretched,
             "Quantization complete"
         );
 
@@ -275,7 +310,7 @@ mod tests {
         let loop_buffer = result.unwrap();
 
         assert_eq!(loop_buffer.loop_info.bpm, 120.0);
-        assert_eq!(loop_buffer.loop_info.bpm_confidence, 1.0);
+        assert!(loop_buffer.loop_info.time_stretched); // Fixed BPM triggers time stretch
         assert_eq!(loop_buffer.loop_info.bars, 2);
         assert_eq!(loop_buffer.loop_info.beats_per_bar, 4);
 

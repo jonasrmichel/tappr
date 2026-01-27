@@ -130,9 +130,11 @@ impl RadioGardenClient {
     #[instrument(skip(self))]
     pub async fn random_station(&self) -> Result<StationInfo, RadioError> {
         let places = self.get_places().await?;
+        debug!(total_places = places.len(), "Fetched places list");
 
         // Filter to places with stations
         let valid_places: Vec<_> = places.into_iter().filter(|p| p.size > 0).collect();
+        debug!(valid_places = valid_places.len(), "Filtered valid places");
 
         let place = valid_places
             .choose(&mut rand::thread_rng())
@@ -142,15 +144,29 @@ impl RadioGardenClient {
             place = %place.title,
             country = %place.country,
             stations = place.size,
+            place_id = %place.id,
             "Selected random place"
         );
 
         let channels = self.get_place_channels(&place.id).await?;
-        let channel_ref = channels
+        debug!(channels_count = channels.len(), "Fetched channels for place");
+
+        // Filter to channels with valid IDs (those starting with /listen/)
+        let valid_channels: Vec<_> = channels.iter().filter(|c| c.id().is_some()).collect();
+        debug!(valid_channels = valid_channels.len(), "Channels with valid IDs");
+
+        if valid_channels.is_empty() {
+            if let Some(first) = channels.first() {
+                debug!(first_channel_url = %first.url, "First channel URL for debugging");
+            }
+        }
+
+        let channel_ref = valid_channels
             .choose(&mut rand::thread_rng())
             .ok_or(RadioError::NoStationsFound)?;
 
         let channel_id = channel_ref.id().ok_or(RadioError::NoStationsFound)?;
+        debug!(channel_id, "Selected channel");
 
         self.build_station_info(channel_id, Some(place.clone()))
             .await
@@ -248,5 +264,38 @@ impl RadioGardenClient {
             longitude,
             stream_url: Some(stream_url),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_random_station() {
+        let client = RadioGardenClient::new(100);
+        
+        println!("Testing get_places...");
+        let places = client.get_places().await.expect("Failed to get places");
+        println!("Got {} places", places.len());
+        
+        let valid: Vec<_> = places.into_iter().filter(|p| p.size > 0).collect();
+        println!("Valid places with stations: {}", valid.len());
+        
+        let place = valid.first().expect("No valid places");
+        println!("First place: {} ({}) - {} stations", place.title, place.country, place.size);
+        
+        println!("Testing get_place_channels for {}...", place.id);
+        let channels = client.get_place_channels(&place.id).await.expect("Failed to get channels");
+        println!("Got {} channels", channels.len());
+        
+        for (i, ch) in channels.iter().take(5).enumerate() {
+            println!("  Channel {}: url={}, id={:?}", i, ch.url, ch.id());
+        }
+        
+        let valid_channels: Vec<_> = channels.iter().filter(|c| c.id().is_some()).collect();
+        println!("Valid channels (with /listen/ URL): {}", valid_channels.len());
+        
+        assert!(valid_channels.len() > 0, "No valid channels found!");
     }
 }

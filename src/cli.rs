@@ -23,8 +23,8 @@ pub struct Args {
     pub seed: Option<u64>,
 
     // Timing
-    /// Duration to listen before capturing (seconds)
-    #[arg(long, default_value = "10")]
+    /// Duration to capture from stream (seconds)
+    #[arg(long, default_value = "20")]
     pub listen_seconds: u32,
 
     /// Duration of captured clip (seconds)
@@ -35,8 +35,8 @@ pub struct Args {
     #[arg(long, default_value = "12")]
     pub station_change_seconds: u32,
 
-    /// Number of bars per loop
-    #[arg(long, default_value = "2", value_parser = clap::value_parser!(u8).range(1..=4))]
+    /// Number of bars per clip (more bars = longer clip)
+    #[arg(long, default_value = "8", value_parser = clap::value_parser!(u8).range(1..=16))]
     pub bars: u8,
 
     /// Time signature (beats per bar)

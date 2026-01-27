@@ -88,6 +88,7 @@ impl LoopBuffer {
     }
 
     /// Get the number of samples per bar
+    #[allow(dead_code)]
     pub fn samples_per_bar(&self) -> usize {
         self.samples.len() / self.loop_info.bars as usize
     }
