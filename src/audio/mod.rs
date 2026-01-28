@@ -1,10 +1,15 @@
 mod buffer;
+mod classifier;
 mod decode;
 mod quantize;
 mod stream;
 mod stretch;
 
 pub use buffer::{LoopBuffer, CHANNELS, SAMPLE_RATE};
+pub use classifier::{AudioClassifier, ContentType};
+
+#[allow(unused_imports)]
+pub use classifier::ClassificationResult;
 pub use decode::AudioDecoder;
 pub use quantize::Quantizer;
 pub use stream::StreamCapture;
@@ -13,15 +18,16 @@ pub use stream::StreamCapture;
 #[allow(unused_imports)]
 pub use stretch::TimeStretcher;
 
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::app::{BpmMode, StationInfo};
 use crate::error::AudioError;
 
-/// Audio processing pipeline
+/// Audio processing pipeline with content classification
 pub struct AudioPipeline {
     stream_capture: StreamCapture,
     quantizer: Quantizer,
+    classifier: AudioClassifier,
 }
 
 impl AudioPipeline {
@@ -29,11 +35,13 @@ impl AudioPipeline {
         Self {
             stream_capture: StreamCapture::new(),
             quantizer: Quantizer::new(min_bpm, max_bpm),
+            classifier: AudioClassifier::new(),
         }
     }
 
     /// Quick-start processing for immediate playback (first station only)
     /// Uses shorter capture time and skips time-stretching for fast startup
+    /// Still rejects clear silence but allows uncertain content for speed
     #[instrument(skip(self, station), fields(station_name = %station.name))]
     pub async fn process_station_quick(
         &self,
@@ -62,7 +70,24 @@ impl AudioPipeline {
             "Audio decoded"
         );
 
-        // Step 3: Quantize with Auto BPM (no time-stretching for speed)
+        // Step 3: Quick classification - only reject clear silence for speed
+        let classification = self.classifier.classify(&raw_audio);
+        debug!(
+            content_type = ?classification.content_type,
+            confidence = classification.confidence,
+            "Quick classification"
+        );
+
+        // For quick-start, only reject silence (be lenient to get audio playing fast)
+        if classification.content_type == ContentType::Silence {
+            warn!(
+                station = %station.name,
+                "Quick-start: skipping silent content"
+            );
+            return Err(AudioError::NotMusic("detected silence".to_string()));
+        }
+
+        // Step 4: Quantize with Auto BPM (no time-stretching for speed)
         let loop_buffer = self
             .quantizer
             .quantize(raw_audio, BpmMode::Auto { min: 70.0, max: 170.0 }, QUICK_BARS, beats_per_bar)?;
@@ -75,7 +100,8 @@ impl AudioPipeline {
         Ok(loop_buffer)
     }
 
-    /// Process a station: capture stream, decode, and quantize
+    /// Process a station: capture stream, decode, classify, and quantize
+    /// Returns error if content is not music (speech, silence, ads)
     #[instrument(skip(self, station), fields(station_name = %station.name))]
     pub async fn process_station(
         &self,
@@ -104,7 +130,37 @@ impl AudioPipeline {
             "Audio decoded"
         );
 
-        // Step 3: Quantize to loop
+        // Step 3: Classify content - reject non-music
+        let classification = self.classifier.classify(&raw_audio);
+        info!(
+            content_type = ?classification.content_type,
+            confidence = classification.confidence,
+            "Content classification"
+        );
+
+        if !classification.content_type.is_music() {
+            let reason = match classification.content_type {
+                ContentType::Speech => "detected speech/talk content",
+                ContentType::Silence => "detected silence",
+                ContentType::Unknown => "unable to confirm music content",
+                ContentType::Music => unreachable!(),
+            };
+            warn!(
+                station = %station.name,
+                content_type = ?classification.content_type,
+                confidence = classification.confidence,
+                "Skipping non-music content"
+            );
+            return Err(AudioError::NotMusic(reason.to_string()));
+        }
+
+        info!(
+            station = %station.name,
+            confidence = classification.confidence,
+            "Music content confirmed"
+        );
+
+        // Step 4: Quantize to loop
         let loop_buffer = self
             .quantizer
             .quantize(raw_audio, bpm_mode, bars, beats_per_bar)?;

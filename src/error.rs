@@ -82,6 +82,9 @@ pub enum AudioError {
 
     #[error("Decode error: {0}")]
     DecodeError(String),
+
+    #[error("Content is not music: {0}")]
+    NotMusic(String),
 }
 
 /// Playback errors
