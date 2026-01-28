@@ -23,6 +23,7 @@ impl ContentType {
 
 /// Classification result with confidence
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ClassificationResult {
     pub content_type: ContentType,
     pub confidence: f32,
@@ -31,6 +32,7 @@ pub struct ClassificationResult {
 
 /// Detailed metrics from classification
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ClassificationDetails {
     pub rms: f32,
     pub zero_crossing_rate: f32,
