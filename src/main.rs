@@ -158,6 +158,9 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
 
     info!("TUI started - press 'q' to quit");
 
+    // Track sink queue length to detect when clips finish
+    let mut last_sink_len = 0usize;
+
     // Main event loop
     loop {
         // Handle TUI input
@@ -181,10 +184,12 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                         // This clip will play immediately
                         playback.play(buffer);
                         tui.set_now_playing(station, loop_info);
+                        last_sink_len = 1; // We now have 1 clip playing
                     } else {
                         // This clip is queued for later
                         playback.append(buffer);
                         tui.add_to_queue(station, loop_info);
+                        last_sink_len = playback.queue_len();
                     }
                 }
                 ProducerEvent::Error(msg) => {
@@ -205,6 +210,7 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                             tui.set_error(format!("Device switch failed: {}", e));
                         }
                     }
+                    last_sink_len = 0;
                 }
                 ProducerEvent::Shutdown => {
                     info!("Producer shutdown");
@@ -212,6 +218,15 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                 }
             }
         }
+
+        // Sync TUI with actual playback state
+        // When sink queue length decreases, a clip finished playing
+        let current_sink_len = playback.queue_len();
+        if current_sink_len < last_sink_len && tui.queue_len() > 0 {
+            // A clip finished, advance the TUI queue
+            tui.advance_queue();
+        }
+        last_sink_len = current_sink_len;
 
         // Draw TUI
         let settings = state.settings.read().await.clone();

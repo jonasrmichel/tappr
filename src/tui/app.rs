@@ -109,30 +109,26 @@ impl TuiApp {
         self.last_error = None;
     }
 
-    /// Check if current clip has finished and advance queue if needed
-    pub fn advance_queue_if_needed(&mut self) {
-        if let (Some(loop_info), Some(started)) = (&self.now_playing_loop, self.now_playing_started) {
-            let duration_secs = loop_info.duration_samples as f32 / loop_info.sample_rate as f32;
-            let elapsed = started.elapsed().as_secs_f32();
-
-            // Add a small buffer (100ms) to avoid advancing too early
-            if elapsed >= duration_secs - 0.1 {
-                // Current clip is done, advance to next
-                if let Some(next) = self.up_next.pop_front() {
-                    // Add current to history
-                    if let Some(prev) = self.now_playing_station.take() {
-                        self.station_history.push(prev);
-                        if self.station_history.len() > 10 {
-                            self.station_history.remove(0);
-                        }
-                    }
-
-                    self.now_playing_station = Some(next.station);
-                    self.now_playing_loop = Some(next.loop_info);
-                    self.now_playing_started = Some(Instant::now());
+    /// Advance to the next station in queue (called when playback actually advances)
+    pub fn advance_queue(&mut self) {
+        if let Some(next) = self.up_next.pop_front() {
+            // Add current to history
+            if let Some(prev) = self.now_playing_station.take() {
+                self.station_history.push(prev);
+                if self.station_history.len() > 10 {
+                    self.station_history.remove(0);
                 }
             }
+
+            self.now_playing_station = Some(next.station);
+            self.now_playing_loop = Some(next.loop_info);
+            self.now_playing_started = Some(Instant::now());
         }
+    }
+
+    /// Get the number of items in the up next queue
+    pub fn queue_len(&self) -> usize {
+        self.up_next.len()
     }
 
     /// Legacy method for compatibility - routes to appropriate method
@@ -155,8 +151,7 @@ impl TuiApp {
 
     /// Draw the TUI
     pub fn draw(&mut self, settings: &Settings) -> Result<(), TuiError> {
-        // Advance queue if current clip has finished
-        self.advance_queue_if_needed();
+        // Queue advancement is now handled by main.rs based on actual sink state
 
         let now_playing_station = self.now_playing_station.clone();
         let now_playing_loop = self.now_playing_loop.clone();
