@@ -185,8 +185,13 @@ async fn run_worker(
     let radio = RadioService::new(rate_limit_ms, cache_dir);
     let audio = AudioPipeline::new(bpm_min, bpm_max);
 
-    // Stagger worker start times to avoid thundering herd
-    tokio::time::sleep(Duration::from_millis(worker_id as u64 * 500)).await;
+    // Worker 0 starts immediately for quick first clip
+    // Other workers stagger to avoid thundering herd
+    if worker_id > 0 {
+        tokio::time::sleep(Duration::from_millis(worker_id as u64 * 500)).await;
+    }
+
+    let mut is_first_clip = worker_id == 0; // Only worker 0 does quick start
 
     loop {
         if state.is_quitting() {
@@ -194,13 +199,28 @@ async fn run_worker(
         }
 
         // Fetch and process a station
-        match fetch_and_process(
-            worker_id,
-            &config,
-            &radio,
-            &audio,
-            &event_tx,
-        ).await {
+        let result = if is_first_clip {
+            // Quick-start mode for first clip: fast capture, no time-stretch
+            is_first_clip = false;
+            fetch_and_process_quick(
+                worker_id,
+                &config,
+                &radio,
+                &audio,
+                &event_tx,
+            ).await
+        } else {
+            // Normal full processing
+            fetch_and_process(
+                worker_id,
+                &config,
+                &radio,
+                &audio,
+                &event_tx,
+            ).await
+        };
+
+        match result {
             Ok((buffer, station)) => {
                 // Send completed clip to coordinator
                 if clip_tx.send((buffer, station)).await.is_err() {
@@ -222,7 +242,48 @@ async fn run_worker(
     info!(worker_id, "Worker stopping");
 }
 
-/// Fetch a station and process its audio
+/// Quick fetch and process for immediate first playback
+async fn fetch_and_process_quick(
+    worker_id: usize,
+    config: &ProducerConfig,
+    radio: &RadioService,
+    audio: &AudioPipeline,
+    event_tx: &mpsc::Sender<ProducerEvent>,
+) -> Result<(crate::audio::LoopBuffer, crate::app::StationInfo), Box<dyn std::error::Error + Send + Sync>> {
+    // Get next station
+    let station = radio
+        .next_station(config.search.as_deref(), config.region.as_deref())
+        .await?;
+
+    info!(
+        worker_id,
+        name = %station.name,
+        country = %station.country,
+        place = %station.place_name,
+        "Quick-start: selected station"
+    );
+
+    // Notify station selected
+    let _ = event_tx
+        .send(ProducerEvent::StationSelected(station.clone()))
+        .await;
+
+    // Quick process audio (shorter capture, no time-stretch)
+    let buffer = audio
+        .process_station_quick(&station, config.beats_per_bar)
+        .await?;
+
+    info!(
+        worker_id,
+        bpm = buffer.loop_info.bpm,
+        duration_secs = buffer.duration_secs(),
+        "Quick-start clip ready"
+    );
+
+    Ok((buffer, station))
+}
+
+/// Fetch a station and process its audio (full processing)
 async fn fetch_and_process(
     worker_id: usize,
     config: &ProducerConfig,

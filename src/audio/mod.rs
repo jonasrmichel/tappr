@@ -32,6 +32,49 @@ impl AudioPipeline {
         }
     }
 
+    /// Quick-start processing for immediate playback (first station only)
+    /// Uses shorter capture time and skips time-stretching for fast startup
+    #[instrument(skip(self, station), fields(station_name = %station.name))]
+    pub async fn process_station_quick(
+        &self,
+        station: &StationInfo,
+        beats_per_bar: u8,
+    ) -> Result<LoopBuffer, AudioError> {
+        const QUICK_LISTEN_SECONDS: u32 = 6;  // Just enough for 4 bars at slow tempo
+        const QUICK_BARS: u8 = 4;
+
+        let stream_url = station
+            .stream_url
+            .as_ref()
+            .ok_or_else(|| AudioError::DecodeError("No stream URL".into()))?;
+
+        debug!(stream_url, "Quick-start audio pipeline");
+
+        // Step 1: Quick capture (6 seconds)
+        let raw_bytes = self.stream_capture.capture(stream_url, QUICK_LISTEN_SECONDS).await?;
+        debug!(bytes = raw_bytes.len(), "Quick capture complete");
+
+        // Step 2: Decode to PCM
+        let raw_audio = AudioDecoder::decode(&raw_bytes).await?;
+        debug!(
+            samples = raw_audio.samples.len(),
+            duration_secs = raw_audio.duration_secs(),
+            "Audio decoded"
+        );
+
+        // Step 3: Quantize with Auto BPM (no time-stretching for speed)
+        let loop_buffer = self
+            .quantizer
+            .quantize(raw_audio, BpmMode::Auto { min: 70.0, max: 170.0 }, QUICK_BARS, beats_per_bar)?;
+        debug!(
+            bpm = loop_buffer.loop_info.bpm,
+            bars = loop_buffer.loop_info.bars,
+            "Quick quantization complete"
+        );
+
+        Ok(loop_buffer)
+    }
+
     /// Process a station: capture stream, decode, and quantize
     #[instrument(skip(self, station), fields(station_name = %station.name))]
     pub async fn process_station(
