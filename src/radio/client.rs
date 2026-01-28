@@ -18,6 +18,8 @@ const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleW
 pub struct RadioGardenClient {
     client: Client,
     rate_limit_delay: Duration,
+    /// Skip rate limiting for first N requests (for fast startup)
+    skip_rate_limit_count: std::sync::atomic::AtomicU32,
 }
 
 impl RadioGardenClient {
@@ -31,11 +33,18 @@ impl RadioGardenClient {
         Self {
             client,
             rate_limit_delay: Duration::from_millis(rate_limit_ms),
+            // Skip rate limiting for first 5 requests to speed up startup
+            skip_rate_limit_count: std::sync::atomic::AtomicU32::new(5),
         }
     }
 
-    /// Apply rate limiting delay
+    /// Apply rate limiting delay (skipped for initial requests)
     async fn rate_limit(&self) {
+        let remaining = self.skip_rate_limit_count.load(std::sync::atomic::Ordering::Relaxed);
+        if remaining > 0 {
+            self.skip_rate_limit_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            return; // Skip rate limiting for startup
+        }
         sleep(self.rate_limit_delay).await;
     }
 
@@ -63,7 +72,7 @@ impl RadioGardenClient {
         Ok(response.data.list)
     }
 
-    /// Get stations for a place
+    /// Get stations for a place (public for RadioService)
     #[instrument(skip(self))]
     pub async fn get_place_channels(&self, place_id: &str) -> Result<Vec<ChannelRef>, RadioError> {
         let url = format!("{}/ara/content/page/{}", BASE_URL, place_id);
@@ -126,7 +135,8 @@ impl RadioGardenClient {
         Ok(results)
     }
 
-    /// Get a random station
+    /// Get a random station (now handled by RadioService with caching)
+    #[allow(dead_code)]
     #[instrument(skip(self))]
     pub async fn random_station(&self) -> Result<StationInfo, RadioError> {
         let places = self.get_places().await?;
@@ -227,8 +237,8 @@ impl RadioGardenClient {
             .await
     }
 
-    /// Build StationInfo from channel ID and optional place
-    async fn build_station_info(
+    /// Build StationInfo from channel ID and optional place (public for RadioService)
+    pub async fn build_station_info(
         &self,
         channel_id: &str,
         place: Option<Place>,

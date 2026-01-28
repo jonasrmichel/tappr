@@ -6,7 +6,7 @@ use tracing::{debug, info, instrument, warn};
 
 use crate::app::{AppState, BpmMode};
 use crate::audio::AudioPipeline;
-use crate::radio::RadioService;
+use crate::radio::{RadioCache, RadioService};
 
 use super::channels::{ProducerCommand, ProducerEvent};
 
@@ -93,17 +93,28 @@ impl Producer {
     pub async fn run(mut self) {
         info!(workers = NUM_WORKERS, "Producer starting with parallel workers");
 
+        // Create shared cache and warm it up BEFORE spawning workers
+        let shared_cache = Arc::new(RadioCache::new(self.cache_dir.clone()));
+        let warmup_service = RadioService::with_shared_cache(self.rate_limit_ms, Arc::clone(&shared_cache));
+
+        // Warm up cache in background (don't block worker startup)
+        tokio::spawn(async move {
+            if let Err(e) = warmup_service.warm_up().await {
+                warn!(error = %e, "Failed to warm up places cache");
+            }
+        });
+
         // Channel for workers to send completed clips
         let (clip_tx, mut clip_rx) = mpsc::channel::<(crate::audio::LoopBuffer, crate::app::StationInfo)>(NUM_WORKERS * 2);
 
-        // Spawn worker tasks
+        // Spawn worker tasks with shared cache
         for worker_id in 0..NUM_WORKERS {
             let config = self.config.clone();
             let state = Arc::clone(&self.state);
             let clip_tx = clip_tx.clone();
             let event_tx = self.event_tx.clone();
             let rate_limit_ms = self.rate_limit_ms;
-            let cache_dir = self.cache_dir.clone();
+            let shared_cache = Arc::clone(&shared_cache);
             let bpm_min = self.bpm_min;
             let bpm_max = self.bpm_max;
 
@@ -115,7 +126,7 @@ impl Producer {
                     clip_tx,
                     event_tx,
                     rate_limit_ms,
-                    cache_dir,
+                    shared_cache,
                     bpm_min,
                     bpm_max,
                 ).await;
@@ -175,14 +186,14 @@ async fn run_worker(
     clip_tx: mpsc::Sender<(crate::audio::LoopBuffer, crate::app::StationInfo)>,
     event_tx: mpsc::Sender<ProducerEvent>,
     rate_limit_ms: u64,
-    cache_dir: Option<std::path::PathBuf>,
+    shared_cache: Arc<RadioCache>,
     bpm_min: f32,
     bpm_max: f32,
 ) {
     info!(worker_id, "Worker starting");
 
-    // Each worker gets its own radio client and audio pipeline
-    let radio = RadioService::new(rate_limit_ms, cache_dir);
+    // Each worker gets its own radio client (with shared cache) and audio pipeline
+    let radio = RadioService::with_shared_cache(rate_limit_ms, shared_cache);
     let audio = AudioPipeline::new(bpm_min, bpm_max);
 
     // Worker 0 starts immediately for quick first clip

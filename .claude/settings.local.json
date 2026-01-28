@@ -22,7 +22,14 @@
       "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch:*)",
       "Bash(git for-each-ref:*)",
       "Bash(xargs -r -n 1 git update-ref -d)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(brew install:*)",
+      "Bash(pkill:*)",
+      "Bash(cargo run:*)",
+      "WebFetch(domain:crates.io)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.rs)",
+      "Bash(120 [stretched]\"\\)\n- Up Next panel displays queue with BPM info\n- Queue advances automatically based on clip duration\n- Audio device selector in settings panel\n\nOther changes:\n- Increase default listen_seconds \\(20\\) and bars \\(8\\) for longer clips\n- Fix sink pause issue after clear\\(\\)\n- Add append\\(\\) method to PlaybackEngine for queue management\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ]
   }
 }
