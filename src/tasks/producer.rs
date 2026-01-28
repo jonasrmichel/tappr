@@ -240,9 +240,17 @@ async fn run_worker(
                 }
             }
             Err(e) => {
-                warn!(worker_id, error = %e, "Worker failed to process station");
-                // Wait before retrying on error
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                // Check if this is a "not music" classification error
+                let is_not_music = e.to_string().contains("not music");
+
+                if is_not_music {
+                    // Don't delay for classification rejections - just try another station
+                    debug!(worker_id, error = %e, "Station rejected (not music), trying another");
+                } else {
+                    warn!(worker_id, error = %e, "Worker failed to process station");
+                    // Wait before retrying on transient errors
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                }
             }
         }
 
@@ -307,22 +315,31 @@ async fn fetch_and_process(
         .next_station(config.search.as_deref(), config.region.as_deref())
         .await?;
 
-    info!(
+    debug!(
         worker_id,
         name = %station.name,
         country = %station.country,
         place = %station.place_name,
-        "Worker selected station"
+        "Worker checking station"
     );
 
-    // Notify station selected
+    // Quick pre-classification (4 seconds) to reject non-music early
+    audio.pre_classify(&station).await?;
+
+    info!(
+        worker_id,
+        name = %station.name,
+        "Station passed music check, processing"
+    );
+
+    // Notify station selected (only after passing pre-classification)
     let _ = event_tx
         .send(ProducerEvent::StationSelected(station.clone()))
         .await;
 
-    // Process audio
+    // Full process audio (skip re-classification since we just checked)
     let buffer = audio
-        .process_station(
+        .process_station_no_classify(
             &station,
             config.listen_seconds,
             config.bpm_mode,
