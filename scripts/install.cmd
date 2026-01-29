@@ -17,7 +17,7 @@ set "ARCH=x86_64"
 if "%PROCESSOR_ARCHITECTURE%"=="ARM64" set "ARCH=aarch64"
 if "%PROCESSOR_ARCHITEW6432%"=="ARM64" set "ARCH=aarch64"
 
-set "TARGET=%ARCH%-pc-windows-msvc"
+set "TARGET=%ARCH%-pc-windows-gnu"
 
 echo [info] Detected architecture: %ARCH%
 echo [info] Target: %TARGET%

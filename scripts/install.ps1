@@ -36,7 +36,7 @@ function Install-Tappr {
     Write-Host ""
 
     $arch = Get-Architecture
-    $target = "$arch-pc-windows-msvc"
+    $target = "$arch-pc-windows-gnu"
 
     Write-Info "Detected architecture: $arch"
     Write-Info "Target: $target"
