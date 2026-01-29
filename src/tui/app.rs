@@ -202,7 +202,7 @@ impl TuiApp {
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(9),  // Settings
-                    Constraint::Length(12), // Now Playing
+                    Constraint::Length(14), // Now Playing
                     Constraint::Min(5),     // Up Next
                 ])
                 .split(body_chunks[0]);

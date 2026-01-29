@@ -174,13 +174,15 @@ pub fn render(
                 ]));
             }
 
-            // Add progress bar at bottom (narrow, smooth countdown)
+            // Add progress bar at bottom with spacing above
             if let Some(p) = progress {
+                lines.push(Line::from("")); // Space above progress bar
                 let bar = progress_bar(p, 15);
                 lines.push(Line::from(Span::styled(
                     bar,
                     Style::default().fg(Color::Green),
                 )));
+                lines.push(Line::from("")); // Space below progress bar
             }
 
             lines
