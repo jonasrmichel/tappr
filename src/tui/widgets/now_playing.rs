@@ -11,22 +11,49 @@ pub enum PlayStatus {
     Error(String),
 }
 
-/// Get countdown circle character based on progress (0.0 = start, 1.0 = end)
-/// Returns a character that visually represents remaining time like iPhone timer
-fn countdown_circle(progress: f32) -> &'static str {
+/// Unicode block characters for fine-grained progress bar (8 levels per cell)
+const PROGRESS_BLOCKS: [&str; 9] = [
+    " ",  // 0/8 - empty
+    "▏",  // 1/8
+    "▎",  // 2/8
+    "▍",  // 3/8
+    "▌",  // 4/8
+    "▋",  // 5/8
+    "▊",  // 6/8
+    "▉",  // 7/8
+    "█",  // 8/8 - full
+];
+
+/// Create a horizontal progress bar showing remaining time
+/// Returns a string of block characters representing the countdown
+fn progress_bar(progress: f32, width: usize) -> String {
     // Progress is how much has elapsed (0.0 = just started, 1.0 = finished)
-    // We want to show remaining time, so invert the visual
-    match progress {
-        p if p < 0.125 => "●",  // Full circle - just started
-        p if p < 0.25 => "◕",   // 7/8 remaining
-        p if p < 0.375 => "◕",  // 3/4 remaining (same char, close enough)
-        p if p < 0.5 => "◑",    // 1/2 remaining
-        p if p < 0.625 => "◑",  // Just under half
-        p if p < 0.75 => "◔",   // 1/4 remaining
-        p if p < 0.875 => "◔",  // Just over 1/4
-        p if p < 1.0 => "○",    // Almost done - empty circle
-        _ => "",                 // Done - no circle
+    // We show remaining time, so remaining = 1.0 - progress
+    let remaining = (1.0 - progress).clamp(0.0, 1.0);
+
+    // Calculate how many "eighths" of cells to fill
+    let total_eighths = (remaining * width as f32 * 8.0) as usize;
+    let full_cells = total_eighths / 8;
+    let partial_eighths = total_eighths % 8;
+
+    let mut bar = String::with_capacity(width);
+
+    // Add full cells
+    for _ in 0..full_cells {
+        bar.push_str(PROGRESS_BLOCKS[8]); // █
     }
+
+    // Add partial cell if there's remaining space
+    if full_cells < width && partial_eighths > 0 {
+        bar.push_str(PROGRESS_BLOCKS[partial_eighths]);
+    }
+
+    // Pad with spaces to fill width (for consistent layout)
+    while bar.chars().count() < width {
+        bar.push(' ');
+    }
+
+    bar
 }
 
 /// Render the now playing panel
@@ -79,23 +106,11 @@ pub fn render(
             ]
         }
         (Some(station), Some(info), PlayStatus::Playing) => {
-            // Build station name line with countdown circle
-            let countdown = progress.map(countdown_circle).unwrap_or("");
-            let name_line = if !countdown.is_empty() {
-                Line::from(vec![
-                    Span::styled(countdown, Style::default().fg(Color::Green)),
-                    Span::raw(" "),
-                    Span::styled(&station.name, Style::default().bold().fg(Color::White)),
-                ])
-            } else {
+            let mut lines = vec![
                 Line::from(Span::styled(
                     &station.name,
                     Style::default().bold().fg(Color::White),
-                ))
-            };
-
-            let mut lines = vec![
-                name_line,
+                )),
                 Line::from(Span::styled(
                     format!("{}, {}", station.place_name, station.country),
                     Style::default().fg(Color::Gray),
@@ -158,6 +173,18 @@ pub fn render(
                         Style::default().fg(Color::Blue).underlined(),
                     ),
                 ]));
+            }
+
+            // Add progress bar at bottom (smooth countdown visual)
+            if let Some(p) = progress {
+                // Use width that fits in panel (accounting for borders and padding)
+                let bar_width = (area.width.saturating_sub(4)) as usize;
+                let bar = progress_bar(p, bar_width.min(30));
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    bar,
+                    Style::default().fg(Color::Green),
+                )));
             }
 
             lines
