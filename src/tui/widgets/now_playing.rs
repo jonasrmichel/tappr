@@ -115,8 +115,19 @@ pub fn render(
                     format!("{}, {}", station.place_name, station.country),
                     Style::default().fg(Color::Gray),
                 )),
-                Line::from(""),
             ];
+
+            // Add progress bar right after station info (always visible)
+            if let Some(p) = progress {
+                let bar_width = (area.width.saturating_sub(4)) as usize;
+                let bar = progress_bar(p, bar_width.min(30));
+                lines.push(Line::from(Span::styled(
+                    bar,
+                    Style::default().fg(Color::Green),
+                )));
+            } else {
+                lines.push(Line::from(""));
+            }
 
             // Show BPM info with time-stretch indicator if applied
             if info.time_stretched {
@@ -173,18 +184,6 @@ pub fn render(
                         Style::default().fg(Color::Blue).underlined(),
                     ),
                 ]));
-            }
-
-            // Add progress bar at bottom (smooth countdown visual)
-            if let Some(p) = progress {
-                // Use width that fits in panel (accounting for borders and padding)
-                let bar_width = (area.width.saturating_sub(4)) as usize;
-                let bar = progress_bar(p, bar_width.min(30));
-                lines.push(Line::from(""));
-                lines.push(Line::from(Span::styled(
-                    bar,
-                    Style::default().fg(Color::Green),
-                )));
             }
 
             lines
