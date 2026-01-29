@@ -206,6 +206,19 @@ impl TuiApp {
                 ])
                 .split(body_chunks[0]);
 
+            // Calculate playback progress for countdown visual
+            let playback_progress = if let (Some(started), Some(loop_info)) = (self.now_playing_started, &now_playing_loop) {
+                let elapsed = started.elapsed().as_secs_f32();
+                let duration = loop_info.duration_samples as f32 / loop_info.sample_rate as f32;
+                if duration > 0.0 {
+                    Some((elapsed / duration).min(1.0))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
             // Render panels
             settings::render(frame, left_chunks[0], settings);
             now_playing::render(
@@ -214,6 +227,7 @@ impl TuiApp {
                 now_playing_station.as_ref(),
                 now_playing_loop.as_ref(),
                 &play_status,
+                playback_progress,
             );
             up_next::render(frame, left_chunks[2], &up_next_queue);
             world_map::render(
