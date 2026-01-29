@@ -11,7 +11,7 @@ use crate::radio::{RadioCache, RadioService};
 use super::channels::{ProducerCommand, ProducerEvent};
 
 /// Number of parallel fetch workers
-const NUM_WORKERS: usize = 3;
+const NUM_WORKERS: usize = 5;
 
 /// Producer task configuration
 #[derive(Clone)]
@@ -104,8 +104,8 @@ impl Producer {
             }
         });
 
-        // Channel for workers to send completed clips
-        let (clip_tx, mut clip_rx) = mpsc::channel::<(crate::audio::LoopBuffer, crate::app::StationInfo)>(NUM_WORKERS * 2);
+        // Channel for workers to send completed clips (larger buffer for aggressive pre-fetch)
+        let (clip_tx, mut clip_rx) = mpsc::channel::<(crate::audio::LoopBuffer, crate::app::StationInfo)>(NUM_WORKERS * 3);
 
         // Spawn worker tasks with shared cache
         for worker_id in 0..NUM_WORKERS {
@@ -198,12 +198,13 @@ async fn run_worker(
     let audio = AudioPipeline::new(bpm_min, bpm_max);
 
     // Worker 0 starts immediately for quick first clip
-    // Other workers stagger to avoid thundering herd
+    // Other workers stagger slightly to avoid thundering herd (but not too much)
     if worker_id > 0 {
-        tokio::time::sleep(Duration::from_millis(worker_id as u64 * 500)).await;
+        tokio::time::sleep(Duration::from_millis(worker_id as u64 * 200)).await;
     }
 
-    let mut is_first_clip = worker_id == 0; // Only worker 0 does quick start
+    // Workers 0 and 1 do quick start for faster initial queue filling
+    let mut is_first_clip = worker_id <= 1;
 
     loop {
         if state.is_quitting() {
@@ -249,14 +250,14 @@ async fn run_worker(
                     debug!(worker_id, error = %e, "Station rejected (not music), trying another");
                 } else {
                     warn!(worker_id, error = %e, "Worker failed to process station");
-                    // Wait before retrying on transient errors
-                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    // Short delay before retrying on transient errors
+                    tokio::time::sleep(Duration::from_millis(500)).await;
                 }
             }
         }
 
-        // Small delay between fetches
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        // Minimal delay between fetches - workers run as fast as possible
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
     info!(worker_id, "Worker stopping");
