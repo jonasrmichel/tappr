@@ -158,8 +158,8 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
 
     info!("TUI started - press 'q' to quit");
 
-    // Track sink queue length to detect when clips finish
-    let mut last_sink_len = 0usize;
+    // Track when the current clip should end (time-based sync for accurate TUI updates)
+    let mut current_clip_end: Option<std::time::Instant> = None;
 
     // Main event loop
     loop {
@@ -169,12 +169,19 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
             break;
         }
 
-        // Sync TUI with actual playback state BEFORE processing events
-        // This ensures we detect clip completions before new LoopReady events can mask them
-        let current_sink_len = playback.queue_len();
-        if current_sink_len < last_sink_len && tui.queue_len() > 0 {
-            // A clip finished or was skipped, advance the TUI queue
-            tui.advance_queue();
+        // Time-based TUI sync: advance when current clip should have ended
+        // This is more accurate than sink.len() which reports late
+        let now = std::time::Instant::now();
+        if let Some(end_time) = current_clip_end {
+            if now >= end_time && tui.queue_len() > 0 {
+                // Current clip should have ended, advance TUI
+                if let Some(duration) = tui.advance_queue() {
+                    // Set end time for the new clip
+                    current_clip_end = Some(now + std::time::Duration::from_secs_f32(duration));
+                } else {
+                    current_clip_end = None;
+                }
+            }
         }
 
         // Process producer events (may add more clips to the sink)
@@ -185,6 +192,7 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                 }
                 ProducerEvent::LoopReady(buffer, station) => {
                     let loop_info = buffer.loop_info.clone();
+                    let duration_secs = loop_info.duration_samples as f32 / loop_info.sample_rate as f32;
 
                     // Append to queue for gapless playback
                     // First clip uses play(), subsequent clips use append()
@@ -192,6 +200,8 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                         // This clip will play immediately
                         playback.play(buffer);
                         tui.set_now_playing(station, loop_info);
+                        // Set end time for this clip
+                        current_clip_end = Some(std::time::Instant::now() + std::time::Duration::from_secs_f32(duration_secs));
                     } else {
                         // This clip is queued for later
                         playback.append(buffer);
@@ -203,14 +213,19 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                 }
                 ProducerEvent::SkipCurrent => {
                     info!("Skipping current station");
-                    // Skip current clip in playback
-                    // The next frame's sync check will detect the queue length decrease
+                    // Skip current clip in playback and immediately advance TUI
                     playback.skip_one();
+                    if let Some(duration) = tui.advance_queue() {
+                        current_clip_end = Some(std::time::Instant::now() + std::time::Duration::from_secs_f32(duration));
+                    } else {
+                        current_clip_end = None;
+                    }
                 }
                 ProducerEvent::AudioDeviceChanged(device_index) => {
                     info!(device_index, "Switching audio device");
                     // Stop current playback
                     playback.stop();
+                    current_clip_end = None;
                     // Recreate playback engine with new device
                     match PlaybackEngine::with_device(Some(device_index)) {
                         Ok(new_playback) => {
@@ -229,9 +244,6 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                 }
             }
         }
-
-        // Update last_sink_len AFTER processing all events
-        last_sink_len = playback.queue_len();
 
         // Draw TUI
         let settings = state.settings.read().await.clone();
