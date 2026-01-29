@@ -35,9 +35,9 @@ jobs:
             archive: tar.gz
             use_cross: true
 
-          # Windows
+          # Windows (using windows-2019 for MSVC compatibility with ssstretch)
           - target: x86_64-pc-windows-msvc
-            os: windows-latest
+            os: windows-2019
             archive: zip
 
     steps:
