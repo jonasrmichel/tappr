@@ -184,13 +184,13 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                         // This clip will play immediately
                         playback.play(buffer);
                         tui.set_now_playing(station, loop_info);
-                        last_sink_len = 1; // We now have 1 clip playing
                     } else {
                         // This clip is queued for later
                         playback.append(buffer);
                         tui.add_to_queue(station, loop_info);
-                        last_sink_len = playback.queue_len();
                     }
+                    // Don't update last_sink_len here - let sync logic handle it
+                    // to avoid missing clip transitions
                 }
                 ProducerEvent::Error(msg) => {
                     tui.set_error(msg);
