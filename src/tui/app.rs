@@ -110,8 +110,8 @@ impl TuiApp {
     }
 
     /// Advance to the next station in queue (called when playback actually advances)
-    /// Returns the duration in seconds of the new now-playing clip, if any
-    pub fn advance_queue(&mut self) -> Option<f32> {
+    /// Returns (duration_secs, bpm) of the new now-playing clip, if any
+    pub fn advance_queue(&mut self) -> Option<(f32, f32)> {
         if let Some(next) = self.up_next.pop_front() {
             // Add current to history
             if let Some(prev) = self.now_playing_station.take() {
@@ -122,10 +122,11 @@ impl TuiApp {
             }
 
             let duration_secs = next.loop_info.duration_samples as f32 / next.loop_info.sample_rate as f32;
+            let bpm = next.loop_info.bpm;
             self.now_playing_station = Some(next.station);
             self.now_playing_loop = Some(next.loop_info);
             self.now_playing_started = Some(Instant::now());
-            Some(duration_secs)
+            Some((duration_secs, bpm))
         } else {
             None
         }

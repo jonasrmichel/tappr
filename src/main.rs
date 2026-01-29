@@ -169,15 +169,17 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
             break;
         }
 
-        // Time-based TUI sync: advance when current clip should have ended
-        // This is more accurate than sink.len() which reports late
+        // Time-based TUI sync: advance when current clip's fade-out starts
+        // This ensures TUI updates when user perceives the transition, not after
         let now = std::time::Instant::now();
         if let Some(end_time) = current_clip_end {
             if now >= end_time && tui.queue_len() > 0 {
-                // Current clip should have ended, advance TUI
-                if let Some(duration) = tui.advance_queue() {
-                    // Set end time for the new clip
-                    current_clip_end = Some(now + std::time::Duration::from_secs_f32(duration));
+                // Current clip's fade-out has started, advance TUI
+                if let Some((duration, bpm)) = tui.advance_queue() {
+                    // Calculate effective duration (subtract fade-out time)
+                    let fade_secs = if bpm > 0.0 { 60.0 / bpm } else { 0.5 };
+                    let effective_duration = (duration - fade_secs).max(0.1);
+                    current_clip_end = Some(now + std::time::Duration::from_secs_f32(effective_duration));
                 } else {
                     current_clip_end = None;
                 }
@@ -193,6 +195,10 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                 ProducerEvent::LoopReady(buffer, station) => {
                     let loop_info = buffer.loop_info.clone();
                     let duration_secs = loop_info.duration_samples as f32 / loop_info.sample_rate as f32;
+                    // Subtract fade-out duration so TUI updates when crossfade starts, not ends
+                    // Fade-out is 1 beat at the clip's BPM
+                    let fade_secs = if loop_info.bpm > 0.0 { 60.0 / loop_info.bpm } else { 0.5 };
+                    let effective_duration = (duration_secs - fade_secs).max(0.1);
 
                     // Append to queue for gapless playback
                     // First clip uses play(), subsequent clips use append()
@@ -200,8 +206,8 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                         // This clip will play immediately
                         playback.play(buffer);
                         tui.set_now_playing(station, loop_info);
-                        // Set end time for this clip
-                        current_clip_end = Some(std::time::Instant::now() + std::time::Duration::from_secs_f32(duration_secs));
+                        // Set end time for this clip (accounting for fade-out)
+                        current_clip_end = Some(std::time::Instant::now() + std::time::Duration::from_secs_f32(effective_duration));
                     } else {
                         // This clip is queued for later
                         playback.append(buffer);
@@ -215,8 +221,10 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                     info!("Skipping current station");
                     // Skip current clip in playback and immediately advance TUI
                     playback.skip_one();
-                    if let Some(duration) = tui.advance_queue() {
-                        current_clip_end = Some(std::time::Instant::now() + std::time::Duration::from_secs_f32(duration));
+                    if let Some((duration, bpm)) = tui.advance_queue() {
+                        let fade_secs = if bpm > 0.0 { 60.0 / bpm } else { 0.5 };
+                        let effective_duration = (duration - fade_secs).max(0.1);
+                        current_clip_end = Some(std::time::Instant::now() + std::time::Duration::from_secs_f32(effective_duration));
                     } else {
                         current_clip_end = None;
                     }
