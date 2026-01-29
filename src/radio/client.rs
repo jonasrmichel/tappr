@@ -227,9 +227,16 @@ impl RadioGardenClient {
         );
 
         let channels = self.get_place_channels(&place.id).await?;
-        let channel_ref = channels
-            .choose(&mut rand::thread_rng())
-            .ok_or(RadioError::NoStationsFound)?;
+
+        // Filter to valid channels, preferring FM over AM
+        let valid_channels: Vec<_> = channels.iter().filter(|c| c.id().is_some()).collect();
+        let fm_channels: Vec<_> = valid_channels.iter().filter(|c| !c.is_am()).copied().collect();
+
+        let channel_ref = if fm_channels.is_empty() {
+            valid_channels.choose(&mut rand::thread_rng()).ok_or(RadioError::NoStationsFound)?
+        } else {
+            fm_channels.choose(&mut rand::thread_rng()).ok_or(RadioError::NoStationsFound)?
+        };
 
         let channel_id = channel_ref.id().ok_or(RadioError::NoStationsFound)?;
 

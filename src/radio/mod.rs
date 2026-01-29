@@ -96,12 +96,28 @@ impl RadioService {
 
         let channels = self.client.get_place_channels(&place.id).await?;
 
-        // Filter to channels with valid IDs
+        // Filter to channels with valid IDs, preferring FM over AM
         let valid_channels: Vec<_> = channels.iter().filter(|c| c.id().is_some()).collect();
 
-        let channel_ref = valid_channels
-            .choose(&mut rand::thread_rng())
-            .ok_or(RadioError::NoStationsFound)?;
+        // Prefer FM stations, exclude AM stations
+        let fm_channels: Vec<_> = valid_channels
+            .iter()
+            .filter(|c| !c.is_am())
+            .copied()
+            .collect();
+
+        // Use FM-filtered list if we have any, otherwise fall back to all valid channels
+        let channel_ref = if fm_channels.is_empty() {
+            debug!("No FM stations found, falling back to all stations");
+            valid_channels
+                .choose(&mut rand::thread_rng())
+                .ok_or(RadioError::NoStationsFound)?
+        } else {
+            debug!(fm_count = fm_channels.len(), total = valid_channels.len(), "Filtered to FM stations");
+            fm_channels
+                .choose(&mut rand::thread_rng())
+                .ok_or(RadioError::NoStationsFound)?
+        };
 
         let channel_id = channel_ref.id().ok_or(RadioError::NoStationsFound)?;
 

@@ -78,6 +78,25 @@ impl ChannelRef {
         // URL format: /listen/{name}/{id}
         self.url.strip_prefix("/listen/").and_then(|s| s.rsplit('/').next())
     }
+
+    /// Check if this appears to be an AM station based on name
+    /// Returns true if the title suggests AM band (e.g., "AM 1000", "Radio AM", "1590 AM")
+    pub fn is_am(&self) -> bool {
+        let title_upper = self.title.to_uppercase();
+        // Match patterns like "AM 550", "AM550", "1590 AM", "RADIO AM"
+        // But not "AMSTERDAM" or "MIAMI" etc.
+        title_upper.contains(" AM ")
+            || title_upper.contains(" AM")  && title_upper.ends_with("AM")
+            || title_upper.starts_with("AM ")
+            || title_upper.contains("AM ") && title_upper.split("AM ").nth(1).map_or(false, |s| s.chars().next().map_or(false, |c| c.is_ascii_digit()))
+    }
+
+    /// Check if this appears to be an FM station based on name
+    #[allow(dead_code)]
+    pub fn is_fm(&self) -> bool {
+        let title_upper = self.title.to_uppercase();
+        title_upper.contains("FM") || title_upper.contains("F.M.")
+    }
 }
 
 /// Full channel details response data
