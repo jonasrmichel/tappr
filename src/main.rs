@@ -160,9 +160,6 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
 
     // Track sink queue length to detect when clips finish
     let mut last_sink_len = 0usize;
-    // Skip automatic queue sync cycles after manual skip to prevent double-advance
-    // (rodio's skip_one may take a few iterations to fully process)
-    let mut skip_sync_cycles = 0u8;
 
     // Main event loop
     loop {
@@ -201,15 +198,9 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                 ProducerEvent::SkipCurrent => {
                     info!("Skipping current station");
                     // Skip current clip in playback
+                    // Don't manually advance TUI here - let the automatic sync handle it
+                    // when it detects the queue length decrease
                     playback.skip_one();
-                    // Advance TUI to next queued station
-                    if tui.queue_len() > 0 {
-                        tui.advance_queue();
-                    }
-                    // Prevent automatic sync from double-advancing
-                    // Skip several cycles as rodio processes the skip asynchronously
-                    skip_sync_cycles = 5;
-                    last_sink_len = playback.queue_len();
                 }
                 ProducerEvent::AudioDeviceChanged(device_index) => {
                     info!(device_index, "Switching audio device");
@@ -236,13 +227,10 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
         }
 
         // Sync TUI with actual playback state
-        // When sink queue length decreases, a clip finished playing
+        // When sink queue length decreases, a clip finished playing (or was skipped)
         let current_sink_len = playback.queue_len();
-        if skip_sync_cycles > 0 {
-            // Skip sync cycles after manual skip to prevent double-advance
-            skip_sync_cycles -= 1;
-        } else if current_sink_len < last_sink_len && tui.queue_len() > 0 {
-            // A clip finished, advance the TUI queue
+        if current_sink_len < last_sink_len && tui.queue_len() > 0 {
+            // A clip finished or was skipped, advance the TUI queue
             tui.advance_queue();
         }
         last_sink_len = current_sink_len;
