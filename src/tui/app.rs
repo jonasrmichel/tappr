@@ -151,8 +151,14 @@ impl TuiApp {
     }
 
     /// Update display with error
+    /// Only changes play_status if nothing is currently playing
     pub fn set_error(&mut self, message: String) {
-        self.play_status = PlayStatus::Error(message.clone());
+        // Don't interrupt playback status for background errors
+        // (e.g., a worker failing to process a station while another plays)
+        if self.now_playing_station.is_none() {
+            self.play_status = PlayStatus::Error(message.clone());
+        }
+        // Always store the error for display in footer
         self.last_error = Some(message);
     }
 
