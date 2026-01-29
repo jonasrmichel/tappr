@@ -71,7 +71,15 @@ impl AudioPipeline {
         );
 
         // Step 3: Quick classification - only reject clear silence for speed
-        let classification = self.classifier.classify(&raw_audio);
+        // Run on blocking thread pool to avoid starving async runtime
+        let classifier = self.classifier.clone();
+        let raw_audio_for_classify = raw_audio.clone();
+        let classification = tokio::task::spawn_blocking(move || {
+            classifier.classify(&raw_audio_for_classify)
+        })
+        .await
+        .map_err(|e| AudioError::DecodeError(format!("Classification task failed: {}", e)))?;
+
         debug!(
             content_type = ?classification.content_type,
             confidence = classification.confidence,
@@ -88,9 +96,14 @@ impl AudioPipeline {
         }
 
         // Step 4: Quantize with Auto BPM (no time-stretching for speed)
-        let loop_buffer = self
-            .quantizer
-            .quantize(raw_audio, BpmMode::Auto { min: 70.0, max: 170.0 }, QUICK_BARS, beats_per_bar)?;
+        // Run on blocking thread pool to avoid starving async runtime
+        let quantizer = self.quantizer.clone();
+        let loop_buffer = tokio::task::spawn_blocking(move || {
+            quantizer.quantize(raw_audio, BpmMode::Auto { min: 70.0, max: 170.0 }, QUICK_BARS, beats_per_bar)
+        })
+        .await
+        .map_err(|e| AudioError::DecodeError(format!("Quantization task failed: {}", e)))??;
+
         debug!(
             bpm = loop_buffer.loop_info.bpm,
             bars = loop_buffer.loop_info.bars,
@@ -131,7 +144,15 @@ impl AudioPipeline {
         );
 
         // Step 3: Classify content - reject non-music
-        let classification = self.classifier.classify(&raw_audio);
+        // Run on blocking thread pool to avoid starving async runtime
+        let classifier = self.classifier.clone();
+        let raw_audio_for_classify = raw_audio.clone();
+        let classification = tokio::task::spawn_blocking(move || {
+            classifier.classify(&raw_audio_for_classify)
+        })
+        .await
+        .map_err(|e| AudioError::DecodeError(format!("Classification task failed: {}", e)))?;
+
         info!(
             content_type = ?classification.content_type,
             confidence = classification.confidence,
@@ -161,9 +182,14 @@ impl AudioPipeline {
         );
 
         // Step 4: Quantize to loop
-        let loop_buffer = self
-            .quantizer
-            .quantize(raw_audio, bpm_mode, bars, beats_per_bar)?;
+        // Run on blocking thread pool to avoid starving async runtime
+        let quantizer = self.quantizer.clone();
+        let loop_buffer = tokio::task::spawn_blocking(move || {
+            quantizer.quantize(raw_audio, bpm_mode, bars, beats_per_bar)
+        })
+        .await
+        .map_err(|e| AudioError::DecodeError(format!("Quantization task failed: {}", e)))??;
+
         debug!(
             bpm = loop_buffer.loop_info.bpm,
             confidence = loop_buffer.loop_info.bpm_confidence,

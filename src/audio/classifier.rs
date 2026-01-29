@@ -45,6 +45,7 @@ pub struct ClassificationDetails {
 }
 
 /// Audio content classifier using spectral analysis
+#[derive(Clone)]
 pub struct AudioClassifier {
     /// RMS threshold below which audio is considered silence
     silence_threshold: f32,

@@ -4,6 +4,7 @@ use tracing::{debug, instrument};
 use super::buffer::{RawAudioBuffer, CHANNELS, SAMPLE_RATE};
 
 /// Time-stretches audio to match a target BPM while preserving pitch
+#[derive(Clone)]
 pub struct TimeStretcher {
     sample_rate: f32,
 }

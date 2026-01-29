@@ -158,9 +158,7 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
 
     info!("TUI started - press 'q' to quit");
 
-    // Track when the current clip should end (time-based sync for accurate TUI updates)
-    let mut current_clip_end: Option<std::time::Instant> = None;
-    // Track sink length as backup detection for clip transitions
+    // Track sink length to detect clip transitions (ground truth from audio playback)
     let mut last_sink_len: usize = 0;
 
     // Main event loop
@@ -171,25 +169,14 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
             break;
         }
 
-        // Hybrid TUI sync: use both time-based and sink-length detection
-        // Advance when EITHER condition is met (whichever detects transition first)
-        let now = std::time::Instant::now();
+        // TUI sync: detect clip transitions by monitoring sink length
+        // This is the ground truth - the audio sink knows when clips actually finish
         let current_sink_len = playback.queue_len();
+        let sink_transitioned = current_sink_len < last_sink_len;
 
-        // Check if we should advance: time elapsed OR sink length decreased
-        let time_triggered = current_clip_end.map_or(false, |end| now >= end);
-        let sink_triggered = current_sink_len < last_sink_len;
-
-        if (time_triggered || sink_triggered) && tui.queue_len() > 0 {
-            // Advance TUI to next station
-            if let Some((duration, bpm)) = tui.advance_queue() {
-                // Calculate effective duration (subtract fade-out time)
-                let fade_secs = if bpm > 0.0 { 60.0 / bpm } else { 0.5 };
-                let effective_duration = (duration - fade_secs).max(0.1);
-                current_clip_end = Some(now + std::time::Duration::from_secs_f32(effective_duration));
-            } else {
-                current_clip_end = None;
-            }
+        if sink_transitioned && tui.queue_len() > 0 {
+            // Audio sink transitioned to next clip, advance TUI to match
+            tui.advance_queue();
         }
 
         // Process producer events (may add more clips to the sink)
@@ -200,11 +187,6 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                 }
                 ProducerEvent::LoopReady(buffer, station) => {
                     let loop_info = buffer.loop_info.clone();
-                    let duration_secs = loop_info.duration_samples as f32 / loop_info.sample_rate as f32;
-                    // Subtract fade-out duration so TUI updates when crossfade starts, not ends
-                    // Fade-out is 1 beat at the clip's BPM
-                    let fade_secs = if loop_info.bpm > 0.0 { 60.0 / loop_info.bpm } else { 0.5 };
-                    let effective_duration = (duration_secs - fade_secs).max(0.1);
 
                     // Append to queue for gapless playback
                     // First clip uses play(), subsequent clips use append()
@@ -212,8 +194,6 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                         // This clip will play immediately
                         playback.play(buffer);
                         tui.set_now_playing(station, loop_info);
-                        // Set end time for this clip (accounting for fade-out)
-                        current_clip_end = Some(std::time::Instant::now() + std::time::Duration::from_secs_f32(effective_duration));
                     } else {
                         // This clip is queued for later
                         playback.append(buffer);
@@ -225,21 +205,14 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                 }
                 ProducerEvent::SkipCurrent => {
                     info!("Skipping current station");
-                    // Skip current clip in playback and immediately advance TUI
+                    // Skip current clip in playback - TUI will advance on next
+                    // loop iteration when it detects the sink length decrease
                     playback.skip_one();
-                    if let Some((duration, bpm)) = tui.advance_queue() {
-                        let fade_secs = if bpm > 0.0 { 60.0 / bpm } else { 0.5 };
-                        let effective_duration = (duration - fade_secs).max(0.1);
-                        current_clip_end = Some(std::time::Instant::now() + std::time::Duration::from_secs_f32(effective_duration));
-                    } else {
-                        current_clip_end = None;
-                    }
                 }
                 ProducerEvent::AudioDeviceChanged(device_index) => {
                     info!(device_index, "Switching audio device");
                     // Stop current playback
                     playback.stop();
-                    current_clip_end = None;
                     // Recreate playback engine with new device
                     match PlaybackEngine::with_device(Some(device_index)) {
                         Ok(new_playback) => {

@@ -9,7 +9,7 @@ pub const SAMPLE_RATE: u32 = 48_000;
 pub const CHANNELS: u16 = 2;
 
 /// Raw audio buffer before quantization
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RawAudioBuffer {
     /// Interleaved samples (f32, normalized to -1.0 to 1.0)
     pub samples: Vec<f32>,

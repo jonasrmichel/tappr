@@ -13,6 +13,7 @@ struct BpmEstimate {
 }
 
 /// Audio quantizer for beat alignment with time-stretching
+#[derive(Clone)]
 pub struct Quantizer {
     min_bpm: f32,
     max_bpm: f32,
