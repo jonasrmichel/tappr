@@ -5,10 +5,13 @@ use rodio::Source;
 
 use crate::audio::{LoopBuffer, CHANNELS, SAMPLE_RATE};
 
-/// Duration of crossfade in seconds
-const CROSSFADE_DURATION_SECS: f32 = 0.5;
+/// Default crossfade duration when BPM is not available
+const DEFAULT_CROSSFADE_SECS: f32 = 0.5;
 
-/// One-shot audio source that plays a buffer once with crossfade support
+/// Number of beats for crossfade (1 beat for tight beat-matching)
+const CROSSFADE_BEATS: f32 = 1.0;
+
+/// One-shot audio source that plays a buffer once with beat-aligned crossfade
 pub struct OneShotSource {
     /// Audio samples
     samples: Arc<[f32]>,
@@ -16,7 +19,7 @@ pub struct OneShotSource {
     position: usize,
     /// Total number of samples
     total_samples: usize,
-    /// Number of samples in fade region (per channel)
+    /// Number of samples in fade region
     fade_samples: usize,
     /// Whether to apply fade-in at start
     fade_in: bool,
@@ -25,7 +28,7 @@ pub struct OneShotSource {
 }
 
 impl OneShotSource {
-    /// Create a new one-shot source with crossfade applied
+    /// Create a new one-shot source with beat-aligned crossfade
     pub fn new(buffer: LoopBuffer) -> Self {
         Self::with_fades(buffer, true, true)
     }
@@ -33,8 +36,20 @@ impl OneShotSource {
     /// Create a new one-shot source with configurable fades
     pub fn with_fades(buffer: LoopBuffer, fade_in: bool, fade_out: bool) -> Self {
         let total_samples = buffer.samples.len();
-        // Calculate fade samples (total samples for both channels)
-        let fade_samples = (CROSSFADE_DURATION_SECS * SAMPLE_RATE as f32 * CHANNELS as f32) as usize;
+        let bpm = buffer.loop_info.bpm;
+
+        // Calculate fade duration based on BPM for beat-aligned transitions
+        // Fade = CROSSFADE_BEATS beats at the clip's BPM
+        let fade_samples = if bpm > 0.0 {
+            // Seconds per beat = 60 / BPM
+            let secs_per_beat = 60.0 / bpm;
+            let fade_secs = secs_per_beat * CROSSFADE_BEATS;
+            (fade_secs * SAMPLE_RATE as f32 * CHANNELS as f32) as usize
+        } else {
+            // Fallback to default if no BPM
+            (DEFAULT_CROSSFADE_SECS * SAMPLE_RATE as f32 * CHANNELS as f32) as usize
+        };
+
         // Ensure fade isn't longer than half the clip
         let fade_samples = fade_samples.min(total_samples / 2);
 
@@ -171,27 +186,28 @@ mod tests {
 
     #[test]
     fn test_crossfade_applies() {
-        // Create a 1-second buffer of constant 1.0 samples
-        let samples = vec![1.0; 96000]; // 1 second at 48kHz stereo
+        // Create a 2-second buffer of constant 1.0 samples (need longer for fade regions)
+        let samples = vec![1.0; 192000]; // 2 seconds at 48kHz stereo
         let buffer = create_test_buffer(samples);
 
         let mut source = OneShotSource::new(buffer);
+
+        // At 120 BPM, 1 beat = 0.5s = 48000 samples (stereo)
+        let expected_fade_samples = 48000;
 
         // First sample should be near 0 (fade in starts at 0)
         let first = source.next().unwrap();
         assert!(first < 0.1, "First sample should be faded in, got {}", first);
 
         // Skip to middle (well past fade-in, before fade-out)
-        // Fade is 0.5s = 24000 stereo samples = 48000 total samples
-        // Middle is around 48000
-        for _ in 0..47998 {
+        for _ in 0..(96000 - 2) {
             source.next();
         }
         let middle = source.next().unwrap();
         assert!((middle - 1.0).abs() < 0.01, "Middle sample should be ~1.0, got {}", middle);
 
         // Skip to near the end (in fade-out region)
-        for _ in 0..47990 {
+        for _ in 0..(96000 - expected_fade_samples) {
             source.next();
         }
 
@@ -207,13 +223,13 @@ mod tests {
     fn test_equal_power_crossfade() {
         // Verify equal-power property: fade_in^2 + fade_out^2 ≈ 1
         // This ensures constant perceived loudness during crossfade
-        let samples = vec![1.0; 96000];
+        let samples = vec![1.0; 192000]; // 2 seconds
         let buffer = create_test_buffer(samples);
 
         let source = OneShotSource::new(buffer);
 
         // Check at various points in fade region
-        for i in 0..source.fade_samples {
+        for i in (0..source.fade_samples).step_by(100) {
             let fade_in = source.fade_in_gain(i);
             // Corresponding fade-out position (mirrored)
             let fade_out_pos = source.total_samples - source.fade_samples + i;
@@ -225,6 +241,45 @@ mod tests {
                 (power_sum - 1.0).abs() < 0.01,
                 "Equal power not maintained at position {}: {} + {} = {}",
                 i, fade_in * fade_in, fade_out * fade_out, power_sum
+            );
+        }
+    }
+
+    #[test]
+    fn test_beat_aligned_fade_duration() {
+        // Test that fade duration is exactly 1 beat at various BPMs
+        let test_cases = [
+            (60.0, 1.0),   // 60 BPM = 1 second per beat
+            (120.0, 0.5),  // 120 BPM = 0.5 seconds per beat
+            (180.0, 1.0 / 3.0), // 180 BPM = 0.333 seconds per beat
+        ];
+
+        for (bpm, expected_secs) in test_cases {
+            let samples = vec![1.0; 192000]; // 2 seconds
+            let duration_samples = samples.len() / CHANNELS as usize;
+            let buffer = LoopBuffer::new(
+                samples,
+                LoopInfo {
+                    bpm,
+                    source_bpm: bpm,
+                    bpm_confidence: 1.0,
+                    time_stretched: false,
+                    bars: 1,
+                    beats_per_bar: 4,
+                    duration_samples,
+                    sample_rate: SAMPLE_RATE,
+                },
+            );
+
+            let source = OneShotSource::new(buffer);
+
+            // Expected fade samples = expected_secs * sample_rate * channels
+            let expected_fade_samples = (expected_secs * SAMPLE_RATE as f32 * CHANNELS as f32) as usize;
+
+            assert!(
+                (source.fade_samples as i32 - expected_fade_samples as i32).abs() < 10,
+                "At {} BPM, expected fade ~{} samples, got {}",
+                bpm, expected_fade_samples, source.fade_samples
             );
         }
     }
