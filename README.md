@@ -20,21 +20,50 @@
 - **Seamless Transitions**: Swaps loops at bar boundaries for smooth playback
 - **Interactive Controls**: Navigate stations, adjust BPM mode, and change loop length in real-time
 
-## Requirements
-
-- [Rust](https://rustup.rs/) 1.70+
-- [ffmpeg](https://ffmpeg.org/) (for audio decoding)
-- Audio output device
-
 ## Installation
 
+### Quick Install
+
+**macOS, Linux, WSL:**
 ```bash
-# Clone the repository
+curl -fsSL https://raw.githubusercontent.com/jonasrmichel/tappr/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/jonasrmichel/tappr/main/scripts/install.ps1 | iex
+```
+
+**Windows (CMD):**
+```cmd
+curl -fsSL https://raw.githubusercontent.com/jonasrmichel/tappr/main/scripts/install.cmd -o install.cmd && install.cmd && del install.cmd
+```
+
+### Build from Source
+
+Requires [Rust](https://rustup.rs/) 1.70+
+
+```bash
 git clone https://github.com/jonasrmichel/tappr.git
 cd tappr
-
-# Build and install
 cargo install --path .
+```
+
+### Requirements
+
+- [ffmpeg](https://ffmpeg.org/) (required for audio decoding)
+- Audio output device
+
+Install ffmpeg if not already available:
+```bash
+# macOS
+brew install ffmpeg
+
+# Debian/Ubuntu
+sudo apt install ffmpeg
+
+# Windows
+winget install ffmpeg
 ```
 
 ## Usage
