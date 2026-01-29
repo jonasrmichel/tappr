@@ -160,6 +160,8 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
 
     // Track sink queue length to detect when clips finish
     let mut last_sink_len = 0usize;
+    // Skip automatic queue sync after manual skip to prevent double-advance
+    let mut skip_next_sync = false;
 
     // Main event loop
     loop {
@@ -204,6 +206,8 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                         tui.advance_queue();
                     }
                     last_sink_len = playback.queue_len();
+                    // Prevent automatic sync from double-advancing
+                    skip_next_sync = true;
                 }
                 ProducerEvent::AudioDeviceChanged(device_index) => {
                     info!(device_index, "Switching audio device");
@@ -232,7 +236,10 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
         // Sync TUI with actual playback state
         // When sink queue length decreases, a clip finished playing
         let current_sink_len = playback.queue_len();
-        if current_sink_len < last_sink_len && tui.queue_len() > 0 {
+        if skip_next_sync {
+            // Skip this sync cycle after manual skip to prevent double-advance
+            skip_next_sync = false;
+        } else if current_sink_len < last_sink_len && tui.queue_len() > 0 {
             // A clip finished, advance the TUI queue
             tui.advance_queue();
         }
