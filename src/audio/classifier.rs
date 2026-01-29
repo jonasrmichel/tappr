@@ -16,8 +16,10 @@ pub enum ContentType {
 }
 
 impl ContentType {
+    /// Returns true if content is likely music or at least not clearly non-music
+    /// We give uncertain content the benefit of the doubt to avoid rejecting good stations
     pub fn is_music(&self) -> bool {
-        matches!(self, ContentType::Music)
+        matches!(self, ContentType::Music | ContentType::Unknown)
     }
 }
 

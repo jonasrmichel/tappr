@@ -320,26 +320,17 @@ async fn fetch_and_process(
         name = %station.name,
         country = %station.country,
         place = %station.place_name,
-        "Worker checking station"
+        "Worker selected station"
     );
 
-    // Quick pre-classification (4 seconds) to reject non-music early
-    audio.pre_classify(&station).await?;
-
-    info!(
-        worker_id,
-        name = %station.name,
-        "Station passed music check, processing"
-    );
-
-    // Notify station selected (only after passing pre-classification)
+    // Notify station selected
     let _ = event_tx
         .send(ProducerEvent::StationSelected(station.clone()))
         .await;
 
-    // Full process audio (skip re-classification since we just checked)
+    // Process audio (captures once, classifies, then quantizes)
     let buffer = audio
-        .process_station_no_classify(
+        .process_station(
             &station,
             config.listen_seconds,
             config.bpm_mode,

@@ -24,7 +24,7 @@ pub struct Args {
 
     // Timing
     /// Duration to capture from stream (seconds)
-    #[arg(long, default_value = "20")]
+    #[arg(long, default_value = "12")]
     pub listen_seconds: u32,
 
     /// Duration of captured clip (seconds)

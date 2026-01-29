@@ -100,47 +100,6 @@ impl AudioPipeline {
         Ok(loop_buffer)
     }
 
-    /// Quick pre-classification to check if station is playing music
-    /// Uses only 4 seconds of audio to minimize wasted time on non-music stations
-    #[instrument(skip(self, station), fields(station_name = %station.name))]
-    pub async fn pre_classify(&self, station: &StationInfo) -> Result<(), AudioError> {
-        const PRE_CLASSIFY_SECONDS: u32 = 4;
-
-        let stream_url = station
-            .stream_url
-            .as_ref()
-            .ok_or_else(|| AudioError::DecodeError("No stream URL".into()))?;
-
-        debug!(stream_url, "Pre-classification check");
-
-        // Capture just 4 seconds
-        let raw_bytes = self.stream_capture.capture(stream_url, PRE_CLASSIFY_SECONDS).await?;
-
-        // Decode to PCM
-        let raw_audio = AudioDecoder::decode(&raw_bytes).await?;
-
-        // Classify content
-        let classification = self.classifier.classify(&raw_audio);
-        debug!(
-            content_type = ?classification.content_type,
-            confidence = classification.confidence,
-            "Pre-classification result"
-        );
-
-        // Reject non-music content
-        if !classification.content_type.is_music() {
-            let reason = match classification.content_type {
-                ContentType::Speech => "detected speech/talk content",
-                ContentType::Silence => "detected silence",
-                ContentType::Unknown => "unable to confirm music content",
-                ContentType::Music => unreachable!(),
-            };
-            return Err(AudioError::NotMusic(reason.to_string()));
-        }
-
-        Ok(())
-    }
-
     /// Process a station: capture stream, decode, classify, and quantize
     /// Returns error if content is not music (speech, silence, ads)
     #[instrument(skip(self, station), fields(station_name = %station.name))]
@@ -183,8 +142,8 @@ impl AudioPipeline {
             let reason = match classification.content_type {
                 ContentType::Speech => "detected speech/talk content",
                 ContentType::Silence => "detected silence",
-                ContentType::Unknown => "unable to confirm music content",
-                ContentType::Music => unreachable!(),
+                // Music and Unknown are accepted by is_music()
+                ContentType::Music | ContentType::Unknown => unreachable!(),
             };
             warn!(
                 station = %station.name,
@@ -202,51 +161,6 @@ impl AudioPipeline {
         );
 
         // Step 4: Quantize to loop
-        let loop_buffer = self
-            .quantizer
-            .quantize(raw_audio, bpm_mode, bars, beats_per_bar)?;
-        debug!(
-            bpm = loop_buffer.loop_info.bpm,
-            confidence = loop_buffer.loop_info.bpm_confidence,
-            bars = loop_buffer.loop_info.bars,
-            "Audio quantized"
-        );
-
-        Ok(loop_buffer)
-    }
-
-    /// Process a station without classification (used after pre_classify)
-    #[instrument(skip(self, station), fields(station_name = %station.name))]
-    pub async fn process_station_no_classify(
-        &self,
-        station: &StationInfo,
-        listen_seconds: u32,
-        bpm_mode: BpmMode,
-        bars: u8,
-        beats_per_bar: u8,
-    ) -> Result<LoopBuffer, AudioError> {
-        let stream_url = station
-            .stream_url
-            .as_ref()
-            .ok_or_else(|| AudioError::DecodeError("No stream URL".into()))?;
-
-        debug!(stream_url, listen_seconds, "Processing pre-classified station");
-
-        // Step 1: Capture stream
-        let raw_bytes = self.stream_capture.capture(stream_url, listen_seconds).await?;
-        debug!(bytes = raw_bytes.len(), "Stream captured");
-
-        // Step 2: Decode to PCM
-        let raw_audio = AudioDecoder::decode(&raw_bytes).await?;
-        debug!(
-            samples = raw_audio.samples.len(),
-            duration_secs = raw_audio.duration_secs(),
-            "Audio decoded"
-        );
-
-        // Skip classification - already done by pre_classify
-
-        // Step 3: Quantize to loop
         let loop_buffer = self
             .quantizer
             .quantize(raw_audio, bpm_mode, bars, beats_per_bar)?;
