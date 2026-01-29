@@ -202,7 +202,7 @@ impl TuiApp {
                 .direction(Direction::Vertical)
                 .constraints([
                     Constraint::Length(9),  // Settings
-                    Constraint::Length(14), // Now Playing
+                    Constraint::Length(13), // Now Playing
                     Constraint::Min(5),     // Up Next
                 ])
                 .split(body_chunks[0]);
@@ -247,8 +247,8 @@ impl TuiApp {
 
     /// Handle keyboard input (non-blocking)
     pub async fn handle_input(&mut self) -> Result<bool, TuiError> {
-        // Poll for events with a short timeout
-        if event::poll(Duration::from_millis(50))? {
+        // Poll for events with minimal timeout to keep UI responsive
+        if event::poll(Duration::from_millis(1))? {
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {

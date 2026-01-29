@@ -182,7 +182,6 @@ pub fn render(
                     bar,
                     Style::default().fg(Color::Green),
                 )));
-                lines.push(Line::from("")); // Space below progress bar
             }
 
             lines
