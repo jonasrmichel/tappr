@@ -163,6 +163,17 @@ pub fn render(
                 ),
             ]));
 
+            // Add website link if available
+            if let Some(ref url) = station.website {
+                lines.push(Line::from(vec![
+                    Span::styled("Web: ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        url.clone(),
+                        Style::default().fg(Color::Blue).underlined(),
+                    ),
+                ]));
+            }
+
             // Add progress bar at bottom (narrow, smooth countdown)
             if let Some(p) = progress {
                 let bar = progress_bar(p, 15);

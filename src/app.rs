@@ -17,7 +17,6 @@ pub struct StationInfo {
     pub longitude: f64,
     pub stream_url: Option<String>,
     /// Station's homepage URL
-    #[allow(dead_code)]
     pub website: Option<String>,
 }
 
