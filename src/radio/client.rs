@@ -280,6 +280,7 @@ impl RadioGardenClient {
             latitude,
             longitude,
             stream_url: Some(stream_url),
+            website: channel.website,
         })
     }
 }

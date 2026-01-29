@@ -106,7 +106,7 @@ pub struct ChannelData {
     pub title: String,
     #[allow(dead_code)]
     pub url: String,
-    #[allow(dead_code)]
+    /// Station's homepage URL
     pub website: Option<String>,
     #[allow(dead_code)]
     pub secure: bool,

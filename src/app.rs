@@ -16,6 +16,8 @@ pub struct StationInfo {
     pub latitude: f64,
     pub longitude: f64,
     pub stream_url: Option<String>,
+    /// Station's homepage URL
+    pub website: Option<String>,
 }
 
 impl Default for StationInfo {
@@ -28,6 +30,7 @@ impl Default for StationInfo {
             latitude: 0.0,
             longitude: 0.0,
             stream_url: None,
+            website: None,
         }
     }
 }
