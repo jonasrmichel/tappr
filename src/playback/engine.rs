@@ -228,6 +228,13 @@ impl PlaybackEngine {
         self.sink.play();
     }
 
+    /// Skip to the next queued source
+    #[instrument(skip(self))]
+    pub fn skip_one(&self) {
+        info!("Skipping to next clip");
+        self.sink.skip_one();
+    }
+
     /// Stop playback
     #[instrument(skip(self))]
     pub fn stop(&mut self) {

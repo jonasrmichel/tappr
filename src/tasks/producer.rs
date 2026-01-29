@@ -149,7 +149,8 @@ impl Producer {
                     match cmd {
                         ProducerCommand::NextStation => {
                             debug!("Received NextStation command");
-                            // Workers are already continuously fetching
+                            // Signal main loop to skip current playback
+                            let _ = self.event_tx.send(ProducerEvent::SkipCurrent).await;
                         }
                         ProducerCommand::AudioDeviceChanged(device_index) => {
                             debug!(device_index, "Received AudioDeviceChanged command");

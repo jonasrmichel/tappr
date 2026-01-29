@@ -24,6 +24,8 @@ pub enum ProducerEvent {
     /// Error occurred (station skipped)
     #[allow(dead_code)]
     Error(String),
+    /// Skip current station and advance to next
+    SkipCurrent,
     /// Audio device changed - main loop should recreate playback engine
     AudioDeviceChanged(usize),
     /// Producer is shutting down

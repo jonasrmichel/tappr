@@ -195,6 +195,16 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                 ProducerEvent::Error(msg) => {
                     tui.set_error(msg);
                 }
+                ProducerEvent::SkipCurrent => {
+                    info!("Skipping current station");
+                    // Skip current clip in playback
+                    playback.skip_one();
+                    // Advance TUI to next queued station
+                    if tui.queue_len() > 0 {
+                        tui.advance_queue();
+                    }
+                    last_sink_len = playback.queue_len();
+                }
                 ProducerEvent::AudioDeviceChanged(device_index) => {
                     info!(device_index, "Switching audio device");
                     // Stop current playback
