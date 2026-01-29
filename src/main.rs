@@ -160,6 +160,8 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
 
     // Track when the current clip should end (time-based sync for accurate TUI updates)
     let mut current_clip_end: Option<std::time::Instant> = None;
+    // Track sink length as backup detection for clip transitions
+    let mut last_sink_len: usize = 0;
 
     // Main event loop
     loop {
@@ -169,20 +171,24 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
             break;
         }
 
-        // Time-based TUI sync: advance when current clip's fade-out starts
-        // This ensures TUI updates when user perceives the transition, not after
+        // Hybrid TUI sync: use both time-based and sink-length detection
+        // Advance when EITHER condition is met (whichever detects transition first)
         let now = std::time::Instant::now();
-        if let Some(end_time) = current_clip_end {
-            if now >= end_time && tui.queue_len() > 0 {
-                // Current clip's fade-out has started, advance TUI
-                if let Some((duration, bpm)) = tui.advance_queue() {
-                    // Calculate effective duration (subtract fade-out time)
-                    let fade_secs = if bpm > 0.0 { 60.0 / bpm } else { 0.5 };
-                    let effective_duration = (duration - fade_secs).max(0.1);
-                    current_clip_end = Some(now + std::time::Duration::from_secs_f32(effective_duration));
-                } else {
-                    current_clip_end = None;
-                }
+        let current_sink_len = playback.queue_len();
+
+        // Check if we should advance: time elapsed OR sink length decreased
+        let time_triggered = current_clip_end.map_or(false, |end| now >= end);
+        let sink_triggered = current_sink_len < last_sink_len;
+
+        if (time_triggered || sink_triggered) && tui.queue_len() > 0 {
+            // Advance TUI to next station
+            if let Some((duration, bpm)) = tui.advance_queue() {
+                // Calculate effective duration (subtract fade-out time)
+                let fade_secs = if bpm > 0.0 { 60.0 / bpm } else { 0.5 };
+                let effective_duration = (duration - fade_secs).max(0.1);
+                current_clip_end = Some(now + std::time::Duration::from_secs_f32(effective_duration));
+            } else {
+                current_clip_end = None;
             }
         }
 
@@ -252,6 +258,9 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                 }
             }
         }
+
+        // Update sink length tracking after event processing
+        last_sink_len = playback.queue_len();
 
         // Draw TUI
         let settings = state.settings.read().await.clone();
