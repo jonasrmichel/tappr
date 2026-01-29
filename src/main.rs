@@ -169,7 +169,15 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
             break;
         }
 
-        // Process producer events
+        // Sync TUI with actual playback state BEFORE processing events
+        // This ensures we detect clip completions before new LoopReady events can mask them
+        let current_sink_len = playback.queue_len();
+        if current_sink_len < last_sink_len && tui.queue_len() > 0 {
+            // A clip finished or was skipped, advance the TUI queue
+            tui.advance_queue();
+        }
+
+        // Process producer events (may add more clips to the sink)
         while let Ok(event) = event_rx.try_recv() {
             match event {
                 ProducerEvent::StationSelected(station) => {
@@ -189,8 +197,6 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                         playback.append(buffer);
                         tui.add_to_queue(station, loop_info);
                     }
-                    // Don't update last_sink_len here - let sync logic handle it
-                    // to avoid missing clip transitions
                 }
                 ProducerEvent::Error(msg) => {
                     tui.set_error(msg);
@@ -198,8 +204,7 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                 ProducerEvent::SkipCurrent => {
                     info!("Skipping current station");
                     // Skip current clip in playback
-                    // Don't manually advance TUI here - let the automatic sync handle it
-                    // when it detects the queue length decrease
+                    // The next frame's sync check will detect the queue length decrease
                     playback.skip_one();
                 }
                 ProducerEvent::AudioDeviceChanged(device_index) => {
@@ -217,7 +222,6 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
                             tui.set_error(format!("Device switch failed: {}", e));
                         }
                     }
-                    last_sink_len = 0;
                 }
                 ProducerEvent::Shutdown => {
                     info!("Producer shutdown");
@@ -226,14 +230,8 @@ async fn run(state: Arc<AppState>, args: Args) -> Result<()> {
             }
         }
 
-        // Sync TUI with actual playback state
-        // When sink queue length decreases, a clip finished playing (or was skipped)
-        let current_sink_len = playback.queue_len();
-        if current_sink_len < last_sink_len && tui.queue_len() > 0 {
-            // A clip finished or was skipped, advance the TUI queue
-            tui.advance_queue();
-        }
-        last_sink_len = current_sink_len;
+        // Update last_sink_len AFTER processing all events
+        last_sink_len = playback.queue_len();
 
         // Draw TUI
         let settings = state.settings.read().await.clone();
