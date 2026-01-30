@@ -12,6 +12,10 @@
   A terminal-based radio sampler that flies around the world, capturing and beat-matching live radio streams.
 </p>
 
+<p align="center">
+  <img src="assets/screenshot.png" alt="tappr screenshot" width="800">
+</p>
+
 ## Features
 
 - **Live Radio Sampling**: Continuously samples stations from [Radio Garden](https://radio.garden)
