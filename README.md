@@ -143,7 +143,7 @@ Debug:
 │   AppState ◄──watch──► TUI (render @ 60 FPS)        │
 └─────────────────────────────────────────────────────┘
                           │
-┌─────────────────────────┼───────────────────────────┐
+┌─────────────────────────────────────────────────────┐
 │                   Tokio Runtime                     │
 │   Producer ──mpsc──► Main ──► Playback Engine       │
 │   (fetch/decode/quantize)      (rodio loop)         │
